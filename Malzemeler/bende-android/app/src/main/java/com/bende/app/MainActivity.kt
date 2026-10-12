@@ -110,6 +110,9 @@ private fun BendeApp() {
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
     var pendingApproval by remember { mutableStateOf<ToolApproval?>(null) }
+    var editingSession by remember { mutableStateOf<ChatSession?>(null) }
+    var editedTitle by remember { mutableStateOf("") }
+    var deletingSession by remember { mutableStateOf<ChatSession?>(null) }
     val scope = rememberCoroutineScope()
     val current = sessions.firstOrNull { it.id == selectedId } ?: sessions.first()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -133,6 +136,22 @@ private fun BendeApp() {
     fun newChat() {
         val session = ChatSession(System.currentTimeMillis(), "Yeni sohbet", emptyList())
         persist(listOf(session) + sessions); selectedId = session.id; input = ""; attachment = null; sendError = null
+    }
+    fun renameSession(session: ChatSession) {
+        val title = editedTitle.trim().take(80)
+        if (title.isNotEmpty()) persist(sessions.map { if (it.id == session.id) it.copy(title = title) else it })
+        editingSession = null
+    }
+    fun deleteSession(session: ChatSession) {
+        if (sending) return
+        val remaining = sessions.filterNot { it.id == session.id }
+        val next = remaining.ifEmpty { listOf(ChatSession(System.currentTimeMillis(), "Yeni sohbet", emptyList())) }
+        persist(next)
+        if (selectedId == session.id) {
+            selectedId = next.first().id
+            sendError = null
+        }
+        deletingSession = null
     }
     fun send() {
         if ((input.isBlank() && attachment == null) || sending) return
@@ -184,7 +203,7 @@ private fun BendeApp() {
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
       Row(Modifier.fillMaxSize()) {
-        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = ::newChat, onSettings = { showSettings = true }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
+        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = ::newChat, onSettings = { showSettings = true }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
             TopBar(current.title, !persistentHistory, providerConfig.model.takeIf { providerConfig.apiKey.isNotBlank() && it.isNotBlank() }, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -201,7 +220,7 @@ private fun BendeApp() {
       if (!persistentHistory && showHistory) {
           Box(Modifier.fillMaxSize()) {
               Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)).clickable { showHistory = false })
-              HistoryPanel(sessions, selectedId, projectName, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
+              HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
           }
       }
     }
@@ -211,6 +230,24 @@ private fun BendeApp() {
         onSave = { config -> ProviderStore.save(context, config); providerConfig = ProviderStore.load(context); showSettings = false },
         onClearKey = { ProviderStore.clearKey(context); providerConfig = ProviderStore.load(context) }
     )
+    editingSession?.let { session ->
+        AlertDialog(
+            onDismissRequest = { editingSession = null },
+            title = { Text("Sohbeti yeniden adlandır") },
+            text = { OutlinedTextField(value = editedTitle, onValueChange = { editedTitle = it.take(80) }, singleLine = true, label = { Text("Sohbet adı") }) },
+            confirmButton = { TextButton(enabled = editedTitle.isNotBlank(), onClick = { renameSession(session) }) { Text("Kaydet") } },
+            dismissButton = { TextButton(onClick = { editingSession = null }) { Text("İptal") } }
+        )
+    }
+    deletingSession?.let { session ->
+        AlertDialog(
+            onDismissRequest = { deletingSession = null },
+            title = { Text("Sohbet silinsin mi?") },
+            text = { Text("‘${session.title}’ ve içindeki mesajlar bu cihazdan silinecek. Bu işlem geri alınamaz.") },
+            confirmButton = { TextButton(onClick = { deleteSession(session) }) { Text("Sil", color = Color(0xFFB42318)) } },
+            dismissButton = { TextButton(onClick = { deletingSession = null }) { Text("Vazgeç") } }
+        )
+    }
     pendingApproval?.let { request ->
         val call = request.invocation
         val args = call.arguments
@@ -316,7 +353,7 @@ private fun TopBar(title: String, showMenu: Boolean, model: String?, onMenu: () 
 }
 
 @Composable
-private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
+private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, allowDelete: Boolean, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onRename: (ChatSession) -> Unit, onDelete: (ChatSession) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().background(Color(0xFFFAFAFB)).border(width = 0.5.dp, color = Line).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Blue), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
@@ -331,9 +368,19 @@ private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectN
         Text("GEÇMİŞ", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
         LazyColumn(Modifier.weight(1f)) {
             items(sessions, key = { it.id }) { session ->
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (session.id == selectedId) Color(0xFFEFF4FF) else Color.Transparent).clickable { onSelect(session) }.padding(horizontal = 10.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.ChatBubbleOutline, null, Modifier.size(16.dp), tint = if (session.id == selectedId) Blue else Muted)
-                    Text(session.title, Modifier.padding(start = 9.dp), color = Ink, fontSize = 13.sp, maxLines = 1)
+                var menuExpanded by remember(session.id) { mutableStateOf(false) }
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (session.id == selectedId) Color(0xFFEFF4FF) else Color.Transparent).padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f).clickable { onSelect(session) }.padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.ChatBubbleOutline, null, Modifier.size(16.dp), tint = if (session.id == selectedId) Blue else Muted)
+                        Text(session.title, Modifier.padding(start = 9.dp), color = Ink, fontSize = 13.sp, maxLines = 1)
+                    }
+                    Box {
+                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreHoriz, contentDescription = "${session.title} seçenekleri", tint = Muted, modifier = Modifier.size(18.dp)) }
+                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                            DropdownMenuItem(text = { Text("Yeniden adlandır") }, onClick = { menuExpanded = false; onRename(session) })
+                            DropdownMenuItem(text = { Text("Sohbeti sil") }, enabled = allowDelete, onClick = { menuExpanded = false; onDelete(session) })
+                        }
+                    }
                 }
             }
         }
