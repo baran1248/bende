@@ -37,7 +37,8 @@
 - Uyarlanabilirlik: Aynı emülatör penceresi 1080×2400 (telefon), 1800×2400 (~686 dp orta) ve 2400×2400 (~914 dp geniş) boyutlarına ayarlandı. Orta genişlikte sohbet görünümü; 840 dp üstünde kalıcı yan gezinme gözlendi. Bu çözünürlük değişimi tablet/katlanabilir fiziksel aygıt testi değildir.
 - Kanıtlar: `Sonuç/Kanitlar/chat-scenario.png`, `attachment-sent.png`, `persisted-chat.png`, `history-drawer.png`, `tablet-window.png`, `expanded-window.png`, `emulator-session.log`.
 - Hata gözlemi: Son uygulama oturumu için yakalanan log’da `FATAL EXCEPTION` yok. Bu tek senaryo log’u genel kararlılık kanıtı değildir.
-- Commit: Aşama henüz tamamlanmadı; kaynak ve kanıtlar ilk geliştirme kontrol noktası olarak commit edilecek.
+- Commit: `be817a5b21a685e240aff03f9829e38df9cafbf6` — ilk geliştirme kontrol noktası. Aşama koşulları eksik olduğu için bu commit aşamanın tamamlandığı anlamına gelmiyor.
+- Dağıtım: `Sonuç/Bende-debug-0.1.0.apk` Android Debug sertifikasıyla V2 imza doğrulamasından geçti; SHA-256 `252F6079BF2B410C729CA197B0DF61188BD2557231FD80C6687B72BE9FE4571C`. Bu, üretim/release anahtarı değildir. Yerel depoda Git remote bulunmadığı ve uygulama tamamlanmadığı için GitHub Release oluşturulmadı.
 
 ## DOĞRULANMADI
 
