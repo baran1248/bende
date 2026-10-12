@@ -11,7 +11,7 @@
 - Sohbet oturumları bu ilk prototipte uygulamanın özel SharedPreferences alanında JSON olarak tutuluyor. Veritabanı şeması ve yedekleme politikası henüz sabitlenmedi.
 - Sağlayıcı yokken sahte model seçimi/yanıtı göstermemek için üst barda “Model bağlanmadı” gösteriliyor. Gönderilen mesaj yerel taslak/geçmişe kaydoluyor.
 - Android belge seçicisi `OpenDocument` ile dosya adı ve kalıcı okunabilir URI saklanıyor. Bu sürüm dosya içeriğini okumuyor veya modele göndermiyor.
-- Geniş pencere sınıfı 840 dp ve üzeri kabul edildi; burada kalıcı sol gezinme alanı var. Daha dar pencerelerde geçmiş açılır çekmeceyle gösteriliyor. Breakpoint’ler pencere genişliğine göre değerlendirilir; fiziksel aygıt adı kullanılmaz.
+- Pencere sınıfları AndroidX Compose Material 3 Adaptive `currentWindowAdaptiveInfoV2()` ve `WindowSizeClass` API’siyle okunuyor. 600 dp ve üzeri genişlikte kalıcı sol gezinme alanı; kompakt pencerede geçmiş çekmecesi kullanılıyor. Genişlik eşikleri resmi pencere sınıfı API’sinden geliyor; fiziksel aygıt adı kullanılmıyor.
 - Bileşen bağımlılıklarında AndroidX/Jetpack (Apache-2.0) ve Material 3 kullanıldı. Haricî kaynak kod kopyalanmadı; GPL kod kullanılmadı. Bağımlılık sürüm/lisans envanteri ve dağıtım lisans bildirimi henüz tamamlanmadı.
 - İlk Windows derlemesi Türkçe `ı` içeren üst klasör yolunda AGP yol kontrolünde durdu. Kaynak klasörünü taşımak yerine AGP’nin deneysel `android.overridePathCheck=true` seçeneği kullanıldı.
 
@@ -27,18 +27,18 @@
 | 6. Tarayıcı devri | Başlamadı | Yok. |
 | 7. Cihaz içi derleme | Başlamadı | Yok. |
 | 8. Yerel model | Başlamadı | Yok. |
-| 9. Cilalama | Başlamadı | İlk UI turu yapıldı; geniş ekranlar tam QA edilmedi. |
+| 9. Cilalama | Başlamadı | İlk UI turu ve emülatörde pencere boyutu denemeleri yapıldı; tam erişilebilirlik ve cihaz QA’sı yok. |
 
 ## Aşama 1 denetimi
 
 - Derleme: `./gradlew.bat :app:assembleDebug` başarılı. Uyarılar: Android pencere sistem çubuğu API’si için deprecated uyarıları; ayrıca `android.overridePathCheck` deneysel. APK debug anahtarıyla imzalı.
 - Emülatör: Kullanıcının belirttiği gibi başka ajan tarafından kullanılan `emulator-5554` kullanılmadı. Kendi `Bende_Test_API_37` API 37 emülatörü `emulator-5558` portunda oluşturulup kullanıldı.
 - Senaryo: Uygulama açıldı; Downloads içinden `bende-sample.txt` seçildi, metin mesajına eklenip gönderildi; ek dosya tek başına da gönderildi. Başlık ve ek ekranda göründü. Uygulama kapatılıp açıldığında mesaj ve yeni kayıt biçimindeki ek adı korundu. Geçmiş çekmecesi açıldı ve seçili oturum gösterildi.
-- Uyarlanabilirlik: Aynı emülatör penceresi 1080×2400 (telefon), 1800×2400 (~686 dp orta) ve 2400×2400 (~914 dp geniş) boyutlarına ayarlandı. Orta genişlikte sohbet görünümü; 840 dp üstünde kalıcı yan gezinme gözlendi. Bu çözünürlük değişimi tablet/katlanabilir fiziksel aygıt testi değildir.
+- Uyarlanabilirlik: Aynı emülatör penceresi 1080×2400 (telefon), 1800×2400 (~686 dp orta) ve 2400×2400 (~914 dp geniş) boyutlarına ayarlandı. Orta ve geniş pencerede kalıcı yan gezinme; kompakt görünümde açılır geçmiş çekmecesi gözlendi. Bu çözünürlük değişimi tablet/katlanabilir fiziksel aygıt testi değildir.
 - Kanıtlar: `Sonuç/Kanitlar/chat-scenario.png`, `attachment-sent.png`, `persisted-chat.png`, `history-drawer.png`, `tablet-window.png`, `expanded-window.png`, `emulator-session.log`.
-- Hata gözlemi: Son uygulama oturumu için yakalanan log’da `FATAL EXCEPTION` yok. Bu tek senaryo log’u genel kararlılık kanıtı değildir.
-- Commit: `be817a5b21a685e240aff03f9829e38df9cafbf6` — ilk geliştirme kontrol noktası. Aşama koşulları eksik olduğu için bu commit aşamanın tamamlandığı anlamına gelmiyor.
-- Dağıtım: `Sonuç/Bende-debug-0.1.0.apk` Android Debug sertifikasıyla V2 imza doğrulamasından geçti; SHA-256 `252F6079BF2B410C729CA197B0DF61188BD2557231FD80C6687B72BE9FE4571C`. Bu, üretim/release anahtarı değildir. Yerel depoda Git remote bulunmadığı ve uygulama tamamlanmadığı için GitHub Release oluşturulmadı.
+- Hata gözlemi: Son uygulama oturumu için yakalanan log’da `FATAL EXCEPTION` yok. İlk emülatör çiziminde uzun bir kare (yaklaşık 9,5 sn) kaydedildi; soğuk başlangıç/emülatör etkisi olabileceği fiziksel cihazda doğrulanmadı. Bu tek senaryo log’u genel kararlılık kanıtı değildir.
+- Commit: ilk geliştirme kontrol noktası `be817a5b21a685e240aff03f9829e38df9cafbf6`; resmi uyarlanabilir API ve son emülatör kanıtları kontrol noktası `aca7ba9`. Aşama koşulları eksik olduğu için commit’ler aşamanın tamamlandığı anlamına gelmiyor.
+- Dağıtım: `Sonuç/Bende-debug-0.1.0.apk` Android Debug sertifikasıyla V2 imza doğrulamasından geçti (sertifika SHA-256 `91517466005df246b5ceca9ece68fc567995590fa9ca2b5c32a09793a6155bd1`). APK SHA-256 `CAEB656BCE5FA91B9BA9A3EE9971576B3CBB2B129569689EF35DECDB6798EC82`; boyut 18.669.901 bayt. Bu, üretim/release anahtarı değildir. Yerel depoda Git remote bulunmadığı ve uygulama tamamlanmadığı için GitHub Release oluşturulmadı.
 
 ## DOĞRULANMADI
 
@@ -52,6 +52,7 @@
 - Android Developers, [Use a Bill of Materials — Jetpack Compose](https://developer.android.com/develop/ui/compose/bom): kullanılan `2026.09.00` BOM ve Compose kitaplıklarının eşleşmesi.
 - Android Developers, [AGP 9.0 release notes](https://developer.android.com/build/releases/agp-9-0-0-release-notes): AGP 9 ile yerleşik Kotlin desteği.
 - Android Developers, [Window size classes](https://developer.android.com/develop/adaptive-apps/guides/use-window-size-classes): pencere genişliği sınıfları ve aygıt boyutu yerine mevcut pencereyi temel alma.
+- Android Developers, [Compose Material 3 Adaptive sürüm notları](https://developer.android.com/jetpack/androidx/releases/compose-material3-adaptive): kullanılan resmi uyarlanabilir Compose API’si.
 - Android Developers, [ActivityResultContracts.OpenDocument](https://developer.android.com/reference/androidx/activity/result/contract/ActivityResultContracts.OpenDocument): kullanıcı denetimli belge seçimi ve URI erişimi.
 - AndroidX, [Lisans](https://github.com/androidx/androidx/blob/androidx-main/LICENSE.txt): Jetpack kitaplıklarının lisans bilgisi.
 
