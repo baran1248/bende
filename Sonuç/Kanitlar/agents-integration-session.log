@@ -1,0 +1,40 @@
+--------- beginning of main
+10-12 15:57:49.764 13468 13468 I libprocessgroup: Created cgroup /sys/fs/cgroup/apps/uid_10235/pid_13468
+10-12 15:57:49.794 13468 13468 I Zygote  : Process 13468 created for com.bende.app
+10-12 15:57:49.795 13468 13468 I com.bende.app: Late-enabling -Xcheck:jni
+10-12 15:57:49.830 13468 13468 I com.bende.app: Using generational CollectorTypeCMC GC.
+10-12 15:57:49.831 13468 13468 W com.bende.app: Unexpected CPU variant for x86: x86_64.
+10-12 15:57:49.831 13468 13468 W com.bende.app: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, alderlake, pantherlake, default
+10-12 15:57:49.990 13468 13468 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+10-12 15:57:50.163 13468 13468 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.extensions.jar
+10-12 15:57:50.166 13468 13468 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.sidecar.jar
+10-12 15:57:51.005 13468 13468 D nativeloader: Configuring clns-9 for other apk /data/app/~~fJbSqh3qorZ45C74UsVS4w==/com.bende.app-LcJUcH67WQuvTEsEnEDTlA==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~fJbSqh3qorZ45C74UsVS4w==/com.bende.app-LcJUcH67WQuvTEsEnEDTlA==/lib/x86_64:/data/app/~~fJbSqh3qorZ45C74UsVS4w==/com.bende.app-LcJUcH67WQuvTEsEnEDTlA==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.bende.app
+10-12 15:57:51.022 13468 13468 V GraphicsEnvironment: Currently set values for:
+10-12 15:57:51.023 13468 13468 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+10-12 15:57:51.023 13468 13468 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+10-12 15:57:51.023 13468 13468 V GraphicsEnvironment: com.bende.app is not listed in per-application setting
+10-12 15:57:51.023 13468 13468 V GraphicsEnvironment: No special selections for ANGLE, returning default driver choice
+10-12 15:57:51.025 13468 13468 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+--------- beginning of system
+10-12 15:57:51.179 13468 13493 I DisplayManager: Choreographer implicitly registered for the refresh rate.
+10-12 15:57:51.271 13468 13493 I GFXSTREAM: [eglDisplay.cpp(297)] Opening libGLESv1_CM_emulation.so
+10-12 15:57:51.272 13468 13493 I GFXSTREAM: [eglDisplay.cpp(297)] Opening libGLESv2_emulation.so
+10-12 15:57:51.275 13468 13493 W libc    : Access denied finding property "vendor.mesa.virtgpu.kumquat"
+10-12 15:57:51.283 13468 13493 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+10-12 15:57:51.306 13468 13468 D CompatChangeReporter: Compat change id reported: 377864165; UID 10235; state: ENABLED
+10-12 15:57:51.443 13468 13468 W HWUI    : Unknown dataspace 0
+10-12 15:57:51.458 13468 13498 W libc    : Access denied finding property "vendor.mesa.virtgpu.kumquat"
+10-12 15:57:51.529 13468 13468 D WindowOnBackDispatcher: setTopOnBackInvokedCallback (unwrapped): android.app.Activity$$ExternalSyntheticLambda0@1294020
+10-12 15:57:52.112 13468 13475 I com.bende.app: Compiler allocated 5250KB to compile void android.view.ViewRootImpl.performTraversals(long)
+10-12 15:57:52.441 13468 13468 I WindowExtensionsImpl: Initializing Window Extensions, vendor API level=10, activity embedding enabled=true
+10-12 15:57:52.450 13468 13468 W UiContextUtils: Requested context is a non-UI Context. Creating a UI-Context with display: 0. Context: Context=android.app.Application@d72893a, of which baseContext=android.app.ContextImpl@331b92f
+10-12 15:57:52.956 13468 13468 D VRI[MainActivity]: WindowInsets changed: 1080x2400 statusBars:[0,63,0,0] navigationBars:[0,0,0,63] mandatorySystemGestures:[0,63,0,84] 
+10-12 15:57:53.005 13468 13468 I HWUI    : Using FreeType backend (prop=Auto)
+10-12 15:57:53.069 13468 13468 I Surface : Creating surface for consumer unnamed-13468-0 with slotExpansion=1 for 64 slots
+10-12 15:57:53.070 13468 13468 I Surface : Creating surface for consumer VRI[MainActivity]#0(BLAST Consumer)0 with slotExpansion=1 for 64 slots
+10-12 15:57:53.685 13468 13468 I com.bende.app: hiddenapi: Accessing hidden method Landroid/os/SystemProperties;->addChangeCallback(Ljava/lang/Runnable;)V (runtime_flags=0, domain=platform, api=unsupported) from Landroidx/compose/ui/platform/AndroidComposeView$Companion; (domain=app, TargetSdkVersion=36) using reflection: allowed
+10-12 15:57:53.708 13468 13468 I Choreographer: Skipped 109 frames!  The application may be doing too much work on its main thread.
+10-12 15:57:53.709 13468 13481 I HWUI    : Davey! duration=2224ms; Flags=1, FrameTimelineVsyncId=161780, IntendedVsync=5591749706850, Vsync=5591799706848, InputEventId=0, HandleInputStart=5591808070600, AnimationStart=5591808097200, PerformTraversalsStart=5591808166700, DrawStart=5593429838900, FrameDeadline=5591766373516, FrameStartTime=5591807928200, FrameInterval=16666666, WorkloadTarget=16666666, AnimationTime=5591799706848, SyncQueued=5593464190700, SyncStart=5593464626700, IssueDrawCommandsStart=5593464724200, SwapBuffers=5593849387600, FrameCompleted=5593975132200, DequeueBufferDuration=509700, QueueBufferDuration=9655200, GpuCompleted=5593974434200, SwapBuffersCompleted=5593975132200, DisplayPresentTime=124314126263732, CommandSubmissionCompleted=5593849387600, 
+10-12 15:57:53.722 13468 13468 D WindowLayoutComponentImpl: Register WindowLayoutInfoListener on Context=com.bende.app.MainActivity@b66c07, of which baseContext=android.app.ContextImpl@f7ac65f
+10-12 15:57:53.809 13468 13468 D InsetsController: hide(ime())
+10-12 15:57:53.811 13468 13468 I ImeTracker: com.bende.app:8ecd9e8d: onCancelled at PHASE_CLIENT_ALREADY_HIDDEN
