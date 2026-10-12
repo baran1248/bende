@@ -9,6 +9,7 @@ Bu, erken aşamada ve kurulabilir bir prototiptir. Şu özellikler vardır:
 - Compose sohbet arayüzü, oturum geçmişi ve cihazda yerel kayıt.
 - Oturum başlığını değiştirme ve onay adımıyla oturum silme.
 - Dört ayrı sohbet ajanını eşzamanlı çalıştırma ve her birinin ilerlemesini geçmişte görme.
+- Kullanıcı başlatımlı ajan isteklerini uygulama arka plandayken sürdürmek için Android ön plan hizmeti bildirimi.
 - Temel Markdown gösterimi.
 - Dosya ve görsel eki seçimi. Sağlayıcı ayarlanıp mesaj gönderildiğinde metin dosyaları (256 KB’a kadar) ve görseller (5 MB’a kadar) okunup isteğe eklenir; desteklenmeyen ikili dosyalar yalnızca dosya adıyla bildirilir.
 - OpenAI uyumlu Chat Completions ve Anthropic Messages istekleri; `/v1/models` model listesi. Gemini API’nin OpenAI uyumlu adresi ve model listeleme yolu da desteklenir.
@@ -20,7 +21,7 @@ Sağlayıcı ayar ekranı ve şifreli anahtar saklama API 37 emülatöründe den
 
 ## Emülatörde kurulum
 
-`Sonuç/Bende-debug-0.6.1.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
+`Sonuç/Bende-debug-0.6.2.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
 
 ## Kaynaktan derleme
 

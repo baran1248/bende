@@ -193,7 +193,7 @@ private fun BendeApp() {
         input = ""; attachment = null
         sendErrors = sendErrors - current.id
         sendingSessionIds = sendingSessionIds + current.id
-        scope.launch {
+        AgentWork.launch(context) {
             try {
                 var history = requestHistory
                 var completed = false

@@ -1,0 +1,22 @@
+Bende foreground service smoke check
+Date: 2026-10-12
+Device: emulator-5558, API 37
+Build: :app:assembleDebug SUCCESS
+Install: adb install -r SUCCESS
+Activity started: SUCCESS
+Start service via app UID while activity visible:
+Starting service: Intent { cmp=com.bende.app/.AgentWorkService }
+Observed service state:
+* ServiceRecord{68af55f u0 com.bende.app/.AgentWorkService c:com.android.shell}
+startForegroundCount=1
+isForeground=true foregroundId=4071 types=0x40000000 foregroundNoti=Notification(channel=agent_work shortcut=null contentView=null vibrate=null sound=null defaults=0 flags=ONGOING_EVENT|ONLY_ALERT_ONCE|FOREGROUND_SERVICE color=0x00000000 category=service vis=PRIVATE)
+Notification system state:
+NotificationChannel{mId='FOREGROUND_SERVICE', mName=Apps consuming battery, mDescription=, mImportance=2, mBypassDnd=false, mLockscreenVisibility=-1000, mSound=content://settings/system/notification_sound, mLights=false, mLightColor=0, mVibrationPattern=null, mVibrationEffect=null, mUserLockedFields=0, mUserVisibleTaskShown=false, mVibrationEnabled=false, mShowBadge=true, mDeleted=false, mDeletedTimeMs=-1, mGroup='null', mAudioAttributes=AudioAttributes: usage=USAGE_NOTIFICATION content=CONTENT_TYPE_SONIFICATION flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null, mBlockableSystem=true, mAllowBubbles=-1, mImportanceLockedDefaultApp=true, mOriginalImp=2, mParent=null, mConversationId=null, mDemoted=false, mImportantConvo=false, mLastNotificationUpdateTimeMs=0, isBundle=false, emoji=null}
+NotificationChannel{mId='agent_work', mName=Ajan görevleri, mDescription=hasDescription , mImportance=2, mBypassDnd=false, mLockscreenVisibility=-1000, mSound=content://settings/system/notification_sound, mLights=false, mLightColor=0, mVibrationPattern=null, mVibrationEffect=null, mUserLockedFields=0, mUserVisibleTaskShown=true, mVibrationEnabled=false, mShowBadge=false, mDeleted=false, mDeletedTimeMs=-1, mGroup='null', mAudioAttributes=AudioAttributes: usage=USAGE_NOTIFICATION content=CONTENT_TYPE_SONIFICATION flags=0x800(FLAG_MUTE_HAPTIC)  tags= bundle=null, mBlockableSystem=false, mAllowBubbles=-1, mImportanceLockedDefaultApp=false, mOriginalImp=2, mParent=null, mConversationId=null, mDemoted=false, mImportantConvo=false, mLastNotificationUpdateTimeMs=0, isBundle=false, emoji=null}
+Stop service via app UID:
+Stopping service: Intent { cmp=com.bende.app/.AgentWorkService }
+Service stopped
+Service exception log (empty means no matching exception):
+10-12 16:12:59.962  1841  1841 I adbd    : adbd service requested 'shell,v2,TERM=dumb,raw:run-as com.bende.app /system/bin/am start-foreground-service --user 0 -n com.bende.app/.AgentWorkService'
+10-12 16:13:00.036   646  1998 I ActivityManager: Background started FGS: Allowed [callingPackage: com.android.shell; callingUid: 10235; uidState: TOP ; uidBFSL: [BFSL]; BFGS denied: false; intent: Intent { xflg=0x4 cmp=com.bende.app/.AgentWorkService }; code:PROC_STATE_TOP; tempAllowListReason:<null>; allowWiu:12; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null; isBindService:false]
+Scope: component startup/foreground notification verified; live agent job/background continuation not exercised.
