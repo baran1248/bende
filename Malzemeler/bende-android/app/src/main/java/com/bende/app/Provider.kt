@@ -212,6 +212,7 @@ object ProviderApi {
             requestMethod = method
             connectTimeout = 20_000
             readTimeout = 90_000
+            instanceFollowRedirects = false
             setRequestProperty("Accept", "application/json")
             if (config.kind == ProviderKind.ANTHROPIC) {
                 setRequestProperty("x-api-key", config.apiKey)
@@ -226,13 +227,32 @@ object ProviderApi {
             if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
             val stream = if (code in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            val text = readResponseBounded(stream)
             if (code !in 200..299) {
                 val detail = runCatching { JSONObject(text).optJSONObject("error")?.optString("message") ?: JSONObject(text).optString("message") }.getOrNull()
                 throw IllegalStateException("Sağlayıcı HTTP $code${detail?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""}")
             }
             text
         } finally { connection.disconnect() }
+    }
+
+    private fun readResponseBounded(stream: java.io.InputStream?): String {
+        stream ?: return ""
+        val maximum = 2 * 1024 * 1024
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        stream.use { input ->
+            var total = 0
+            while (true) {
+                val count = input.read(buffer, 0, minOf(buffer.size, maximum + 1 - total))
+                if (count < 0) break
+                if (count == 0) continue
+                output.write(buffer, 0, count)
+                total += count
+                require(total <= maximum) { "Sağlayıcı yanıtı 2 MB sınırını aşıyor." }
+            }
+        }
+        return output.toString(Charsets.UTF_8.name())
     }
 
     private fun endpoint(config: ProviderConfig, path: String): String = normalizeBaseUrl(config.baseUrl) + path
