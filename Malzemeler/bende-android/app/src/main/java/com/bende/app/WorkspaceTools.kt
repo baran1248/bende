@@ -72,6 +72,17 @@ object AgentTools {
 
     fun needsApproval(name: String): Boolean = name in setOf("write_file", "edit_file", "delete_file")
 
+    fun projectInstructions(context: Context): String? {
+        val rootUri = ProjectWorkspace.uri(context) ?: return null
+        val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
+        val instructions = root.findFile("AGENTS.md") ?: return null
+        require(instructions.isFile && isTextFile(instructions)) { "Proje kökündeki AGENTS.md okunabilir bir metin dosyası olmalı." }
+        val bytes = context.contentResolver.openInputStream(instructions.uri)?.use { readBounded(it, 32 * 1024) }
+            ?: throw IllegalStateException("Proje kökündeki AGENTS.md okunamadı.")
+        require(bytes.size <= 32 * 1024) { "AGENTS.md dosyası 32 KB sınırını aşıyor." }
+        return String(bytes, Charsets.UTF_8).take(16_000)
+    }
+
     fun display(invocation: ToolInvocation): String = when (invocation.name) {
         "search_files" -> "${invocation.name}: ${invocation.arguments.optString("query")}"
         else -> "${invocation.name}: ${invocation.arguments.optString("path")}"

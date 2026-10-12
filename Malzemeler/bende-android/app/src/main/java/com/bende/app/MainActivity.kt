@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 import org.json.JSONArray
@@ -113,6 +115,10 @@ private fun BendeApp() {
     var editingSession by remember { mutableStateOf<ChatSession?>(null) }
     var editedTitle by remember { mutableStateOf("") }
     var deletingSession by remember { mutableStateOf<ChatSession?>(null) }
+    var showInstructions by remember { mutableStateOf(false) }
+    var instructionsLoading by remember { mutableStateOf(false) }
+    var instructionsText by remember { mutableStateOf<String?>(null) }
+    var instructionsError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val current = sessions.firstOrNull { it.id == selectedId } ?: sessions.first()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -152,6 +158,21 @@ private fun BendeApp() {
             sendError = null
         }
         deletingSession = null
+    }
+    fun inspectProjectInstructions() {
+        showInstructions = true
+        instructionsLoading = true
+        instructionsText = null
+        instructionsError = null
+        scope.launch {
+            try {
+                instructionsText = withContext(Dispatchers.IO) { AgentTools.projectInstructions(context) }
+            } catch (error: Exception) {
+                instructionsError = error.message ?: "AGENTS.md okunamadı."
+            } finally {
+                instructionsLoading = false
+            }
+        }
     }
     fun send() {
         if ((input.isBlank() && attachment == null) || sending) return
@@ -203,7 +224,7 @@ private fun BendeApp() {
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
       Row(Modifier.fillMaxSize()) {
-        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = ::newChat, onSettings = { showSettings = true }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
+        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = ::newChat, onSettings = { showSettings = true }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
             TopBar(current.title, !persistentHistory, providerConfig.model.takeIf { providerConfig.apiKey.isNotBlank() && it.isNotBlank() }, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -220,7 +241,7 @@ private fun BendeApp() {
       if (!persistentHistory && showHistory) {
           Box(Modifier.fillMaxSize()) {
               Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)).clickable { showHistory = false })
-              HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
+              HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
           }
       }
     }
@@ -230,6 +251,25 @@ private fun BendeApp() {
         onSave = { config -> ProviderStore.save(context, config); providerConfig = ProviderStore.load(context); showSettings = false },
         onClearKey = { ProviderStore.clearKey(context); providerConfig = ProviderStore.load(context) }
     )
+    if (showInstructions) {
+        AlertDialog(
+            onDismissRequest = { showInstructions = false },
+            title = { Text("Proje talimatları · AGENTS.md") },
+            text = {
+                Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                    Text("Kök dizindeki dosya her model isteğinde seçtiğin sağlayıcıya gönderilir.", color = Muted, fontSize = 12.sp)
+                    Spacer(Modifier.height(10.dp))
+                    when {
+                        instructionsLoading -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                        instructionsError != null -> Text("Okuma hatası: $instructionsError", color = Color(0xFFB42318))
+                        instructionsText == null -> Text("Seçili proje kökünde AGENTS.md bulunamadı.", color = Muted)
+                        else -> Text(instructionsText.orEmpty(), color = Ink, fontSize = 12.sp, lineHeight = 18.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showInstructions = false }) { Text("Kapat") } }
+        )
+    }
     editingSession?.let { session ->
         AlertDialog(
             onDismissRequest = { editingSession = null },
@@ -353,7 +393,7 @@ private fun TopBar(title: String, showMenu: Boolean, model: String?, onMenu: () 
 }
 
 @Composable
-private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, allowDelete: Boolean, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onRename: (ChatSession) -> Unit, onDelete: (ChatSession) -> Unit, modifier: Modifier = Modifier) {
+private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, allowDelete: Boolean, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onRename: (ChatSession) -> Unit, onDelete: (ChatSession) -> Unit, onInstructions: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().background(Color(0xFFFAFAFB)).border(width = 0.5.dp, color = Line).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Blue), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
@@ -365,6 +405,7 @@ private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectN
         Text("ÇALIŞMA ALANI", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
         NavRow(Icons.Default.FolderOpen, if (projectName == null) "Proje seç" else "${projectName.take(18)}", if (projectName == null) "seç" else "açık", onSelectProject)
         NavRow(Icons.Default.Terminal, "Kod araçları", "5 araç")
+        NavRow(Icons.Default.Code, "Proje talimatı", "incele", onInstructions)
         Text("GEÇMİŞ", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
         LazyColumn(Modifier.weight(1f)) {
             items(sessions, key = { it.id }) { session ->
