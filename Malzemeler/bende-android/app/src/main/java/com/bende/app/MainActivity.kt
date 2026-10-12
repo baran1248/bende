@@ -34,12 +34,12 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -48,6 +48,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
+import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -79,13 +81,14 @@ private fun BendeTheme(content: @Composable () -> Unit) {
 @Composable
 private fun BendeApp() {
     val context = LocalContext.current
-    val width = LocalConfiguration.current.screenWidthDp
-    val wide = width >= 840
+    val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
+    val wide = windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_EXPANDED_LOWER_BOUND)
+    val persistentHistory = windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_MEDIUM_LOWER_BOUND)
     var sessions by remember { mutableStateOf(loadSessions(context)) }
     var selectedId by remember { mutableLongStateOf(sessions.firstOrNull()?.id ?: 1L) }
     var input by remember { mutableStateOf("") }
     var attachment by remember { mutableStateOf<Attachment?>(null) }
-    var showHistory by remember { mutableStateOf(wide) }
+    var showHistory by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     val current = sessions.firstOrNull { it.id == selectedId } ?: sessions.first()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -112,9 +115,9 @@ private fun BendeApp() {
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
       Row(Modifier.fillMaxSize()) {
-        if (wide) HistoryPanel(sessions, selectedId, onSelect = { selectedId = it.id; showHistory = false }, onNew = ::newChat, onSettings = { showSettings = true }, modifier = Modifier.width(300.dp))
+        if (persistentHistory) HistoryPanel(sessions, selectedId, onSelect = { selectedId = it.id; showHistory = false }, onNew = ::newChat, onSettings = { showSettings = true }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            TopBar(current.title, wide, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
+            TopBar(current.title, !persistentHistory, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (current.messages.isEmpty()) Welcome(onPrompt = { input = it })
                 else MessagesList(current.messages, modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 72.dp else 20.dp))
@@ -123,7 +126,7 @@ private fun BendeApp() {
             Text("Bende hata yapabilir. Önemli bilgileri kontrol edin.", Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp), color = Muted, fontSize = 11.sp)
         }
       }
-      if (!wide && showHistory) {
+      if (!persistentHistory && showHistory) {
           Box(Modifier.fillMaxSize()) {
               Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)).clickable { showHistory = false })
               HistoryPanel(sessions, selectedId, onSelect = { selectedId = it.id; showHistory = false }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
@@ -134,9 +137,9 @@ private fun BendeApp() {
 }
 
 @Composable
-private fun TopBar(title: String, wide: Boolean, onMenu: () -> Unit, onSettings: () -> Unit) {
+private fun TopBar(title: String, showMenu: Boolean, onMenu: () -> Unit, onSettings: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(64.dp).border(width = 0.5.dp, color = Line).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (!wide) IconButton(onClick = onMenu) { Icon(Icons.Default.Menu, contentDescription = "Sohbet geçmişi", tint = Ink) }
+        if (showMenu) IconButton(onClick = onMenu) { Icon(Icons.Default.Menu, contentDescription = "Sohbet geçmişi", tint = Ink) }
         Text(title, Modifier.weight(1f), color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
         Text("Model bağlanmadı", Modifier.clip(RoundedCornerShape(16.dp)).background(SurfaceSoft).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 8.dp), color = Muted, fontSize = 12.sp)
         IconButton(onClick = onSettings) { Icon(Icons.Default.MoreHoriz, contentDescription = "Diğer seçenekler", tint = Muted) }
