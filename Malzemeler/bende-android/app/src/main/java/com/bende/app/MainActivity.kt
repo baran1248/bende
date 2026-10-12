@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CompletableDeferred
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 import org.json.JSONArray
@@ -65,8 +66,17 @@ private val Line = Color(0xFFE5E7EB)
 private val SurfaceSoft = Color(0xFFF7F8FA)
 
 data class Attachment(val name: String, val uri: String?)
-data class Message(val id: Long, val text: String, val user: Boolean, val attachment: Attachment? = null)
+data class Message(
+    val id: Long,
+    val text: String,
+    val user: Boolean,
+    val attachment: Attachment? = null,
+    val toolCalls: List<ToolInvocation> = emptyList(),
+    val toolResultFor: String? = null,
+    val toolName: String? = null
+)
 data class ChatSession(val id: Long, val title: String, val messages: List<Message>)
+data class ToolApproval(val invocation: ToolInvocation, val decision: CompletableDeferred<Boolean>)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -96,8 +106,10 @@ private fun BendeApp() {
     var showHistory by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var providerConfig by remember { mutableStateOf(ProviderStore.load(context)) }
+    var projectName by remember { mutableStateOf(ProjectWorkspace.name(context)) }
     var sending by remember { mutableStateOf(false) }
     var sendError by remember { mutableStateOf<String?>(null) }
+    var pendingApproval by remember { mutableStateOf<ToolApproval?>(null) }
     val scope = rememberCoroutineScope()
     val current = sessions.firstOrNull { it.id == selectedId } ?: sessions.first()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -107,11 +119,20 @@ private fun BendeApp() {
             attachment = Attachment(name, it.toString())
         }
     }
+    val projectPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        uri?.let {
+            val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching { context.contentResolver.takePersistableUriPermission(it, flags) }
+            val root = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, it)
+            projectName = root?.name ?: "Proje"
+            ProjectWorkspace.save(context, it, projectName ?: "Proje")
+        }
+    }
 
     fun persist(next: List<ChatSession>) { sessions = next; saveSessions(context, next) }
     fun newChat() {
         val session = ChatSession(System.currentTimeMillis(), "Yeni sohbet", emptyList())
-        persist(listOf(session) + sessions); selectedId = session.id; input = ""; attachment = null
+        persist(listOf(session) + sessions); selectedId = session.id; input = ""; attachment = null; sendError = null
     }
     fun send() {
         if ((input.isBlank() && attachment == null) || sending) return
@@ -126,9 +147,35 @@ private fun BendeApp() {
         sending = true
         scope.launch {
             try {
-                val answer = ProviderApi.complete(context, providerConfig, requestHistory)
-                val latest = sessions.firstOrNull { it.id == targetId }
-                if (latest != null) persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = latest.messages + Message(System.currentTimeMillis(), answer, false)) else session })
+                var history = requestHistory
+                var completed = false
+                for (step in 0 until 8) {
+                    val answer = ProviderApi.complete(context, providerConfig, history)
+                    if (answer.toolCalls.isEmpty()) {
+                        val finalMessage = Message(System.currentTimeMillis(), answer.text, false)
+                        history = history + finalMessage
+                        sessions.firstOrNull { it.id == targetId }?.let { latest -> persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = history) else session }) }
+                        completed = true
+                        break
+                    }
+                    val toolMessage = Message(System.currentTimeMillis(), answer.text, false, toolCalls = answer.toolCalls)
+                    history = history + toolMessage
+                    sessions.firstOrNull { it.id == targetId }?.let { latest -> persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = history) else session }) }
+                    for (call in answer.toolCalls) {
+                        val result = if (AgentTools.needsApproval(call.name)) {
+                            val request = ToolApproval(call, CompletableDeferred())
+                            pendingApproval = request
+                            val approved = request.decision.await()
+                            pendingApproval = null
+                            if (approved) runCatching { AgentTools.execute(context, call) }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
+                            else "Kullanıcı işlemi reddetti; dosya değiştirilmedi."
+                        } else runCatching { AgentTools.execute(context, call) }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
+                        val toolResult = Message(System.currentTimeMillis(), result, false, toolResultFor = call.id, toolName = call.name)
+                        history = history + toolResult
+                        sessions.firstOrNull { it.id == targetId }?.let { latest -> persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = history) else session }) }
+                    }
+                }
+                if (!completed) sendError = "Ajan 8 araç/yanıt adımı sonunda durdu. Kaldığı yerden yeni mesajla devam edebilirsin."
             } catch (error: Exception) {
                 sendError = error.message ?: "İstek tamamlanamadı. Bağlantı ve sağlayıcı ayarlarını kontrol edin."
             } finally { sending = false }
@@ -137,7 +184,7 @@ private fun BendeApp() {
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
       Row(Modifier.fillMaxSize()) {
-        if (persistentHistory) HistoryPanel(sessions, selectedId, onSelect = { selectedId = it.id; showHistory = false }, onNew = ::newChat, onSettings = { showSettings = true }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
+        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = ::newChat, onSettings = { showSettings = true }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
             TopBar(current.title, !persistentHistory, providerConfig.model.takeIf { providerConfig.apiKey.isNotBlank() && it.isNotBlank() }, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
             Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -154,7 +201,7 @@ private fun BendeApp() {
       if (!persistentHistory && showHistory) {
           Box(Modifier.fillMaxSize()) {
               Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)).clickable { showHistory = false })
-              HistoryPanel(sessions, selectedId, onSelect = { selectedId = it.id; showHistory = false }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
+              HistoryPanel(sessions, selectedId, projectName, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
           }
       }
     }
@@ -164,6 +211,28 @@ private fun BendeApp() {
         onSave = { config -> ProviderStore.save(context, config); providerConfig = ProviderStore.load(context); showSettings = false },
         onClearKey = { ProviderStore.clearKey(context); providerConfig = ProviderStore.load(context) }
     )
+    pendingApproval?.let { request ->
+        val call = request.invocation
+        val args = call.arguments
+        val path = args.optString("path")
+        val preview = when (call.name) {
+            "write_file" -> args.optString("content")
+            "edit_file" -> "Bul: ${args.optString("old_text")}\n\nYeni: ${args.optString("new_text")}"
+            else -> path
+        }
+        AlertDialog(
+            onDismissRequest = { request.decision.complete(false) },
+            title = { Text(if (call.name == "delete_file") "Dosya silme izni" else "Dosya değişikliği izni") },
+            text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
+                Text("Proje: ${projectName ?: "Seçilmedi"}\nAraç: ${call.name}\nYol: $path", color = Ink)
+                if (call.name == "delete_file") Text("Bu işlem dosyayı kalıcı olarak siler.", Modifier.padding(top = 12.dp), color = Color(0xFFB42318))
+                else Text(preview.take(3000), Modifier.padding(top = 12.dp), color = Muted, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                Text("Ajan bu işlemi yapabilmek için onayınızı bekliyor.", Modifier.padding(top = 12.dp), color = Muted, fontSize = 12.sp)
+            } },
+            confirmButton = { TextButton(onClick = { request.decision.complete(true) }) { Text("İzin ver") } },
+            dismissButton = { TextButton(onClick = { request.decision.complete(false) }) { Text("Reddet") } }
+        )
+    }
 }
 
 @Composable
@@ -247,7 +316,7 @@ private fun TopBar(title: String, showMenu: Boolean, model: String?, onMenu: () 
 }
 
 @Composable
-private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
+private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().background(Color(0xFFFAFAFB)).border(width = 0.5.dp, color = Line).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Blue), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
@@ -257,8 +326,8 @@ private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, onSelect
         Spacer(Modifier.height(22.dp))
         Button(onClick = onNew, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(12.dp)) { Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Yeni sohbet") }
         Text("ÇALIŞMA ALANI", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
-        NavRow(Icons.Default.FolderOpen, "Proje seç", "Yakında")
-        NavRow(Icons.Default.Terminal, "Kod araçları", "Yakında")
+        NavRow(Icons.Default.FolderOpen, if (projectName == null) "Proje seç" else "${projectName.take(18)}", if (projectName == null) "seç" else "açık", onSelectProject)
+        NavRow(Icons.Default.Terminal, "Kod araçları", "5 araç")
         Text("GEÇMİŞ", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
         LazyColumn(Modifier.weight(1f)) {
             items(sessions, key = { it.id }) { session ->
@@ -274,8 +343,8 @@ private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, onSelect
 }
 
 @Composable
-private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, badge: String) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = Muted, modifier = Modifier.size(17.dp)); Text(title, Modifier.weight(1f).padding(start = 10.dp), color = Ink, fontSize = 13.sp); Text(badge, color = Muted, fontSize = 10.sp) }
+private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, badge: String, onClick: () -> Unit = {}) {
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = Muted, modifier = Modifier.size(17.dp)); Text(title, Modifier.weight(1f).padding(start = 10.dp), color = Ink, fontSize = 13.sp, maxLines = 1); Text(badge, color = Muted, fontSize = 10.sp) }
 }
 
 @Composable
@@ -309,9 +378,17 @@ private fun MessagesList(messages: List<Message>, sending: Boolean = false, modi
                     message.attachment?.let { Text("📎  ${it.name}", color = Blue, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
                     MarkdownText(message.text, Ink)
                 }
+            } else if (message.toolResultFor != null) Row(Modifier.fillMaxWidth()) {
+                Column(Modifier.widthIn(max = 640.dp).clip(RoundedCornerShape(12.dp)).background(SurfaceSoft).padding(12.dp)) {
+                    Text("${message.toolName ?: "Araç"} sonucu", color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                    Text(message.text.take(3000), Modifier.padding(top = 4.dp), color = Ink, fontSize = 12.sp, lineHeight = 18.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                }
+            } else if (message.toolCalls.isNotEmpty() && message.text.isBlank()) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.SmartToy, null, tint = Blue, modifier = Modifier.size(18.dp))
+                Text(message.toolCalls.joinToString { AgentTools.display(it) }, Modifier.padding(start = 8.dp), color = Muted, fontSize = 12.sp)
             } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                 Box(Modifier.size(28.dp).clip(CircleShape).background(Color(0xFFEFF4FF)), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, null, tint = Blue, modifier = Modifier.size(16.dp)) }
-                Column(Modifier.padding(start = 11.dp).widthIn(max = 600.dp)) { Text("Bende", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp); MarkdownText(message.text, Ink, Modifier.padding(top = 6.dp)) }
+                Column(Modifier.padding(start = 11.dp).widthIn(max = 600.dp)) { Text("Bende", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp); MarkdownText(message.text, Ink, Modifier.padding(top = 6.dp)); if (message.toolCalls.isNotEmpty()) Text("Araçlar: ${message.toolCalls.joinToString { it.name }}", Modifier.padding(top = 6.dp), color = Muted, fontSize = 11.sp) }
             }
         }
         if (sending) item(key = "assistant-thinking") {
@@ -394,7 +471,12 @@ private fun loadSessions(context: Context): List<ChatSession> = try {
             val m = msgs.getJSONObject(j)
             val uri = m.optString("attachmentUri").takeIf { it.isNotEmpty() }
             val name = m.optString("attachmentName").takeIf { it.isNotEmpty() } ?: m.optString("attachment").takeIf { it.isNotEmpty() }
-            Message(m.getLong("id"), m.getString("text"), m.getBoolean("user"), if (name != null) Attachment(name, uri) else null)
+            val calls = m.optJSONArray("toolCalls")?.let { a -> (0 until a.length()).map { index ->
+                val call = a.getJSONObject(index)
+                ToolInvocation(call.getString("id"), call.getString("name"), JSONObject(call.optString("arguments", "{}")))
+            } }.orEmpty()
+            Message(m.getLong("id"), m.getString("text"), m.getBoolean("user"), if (name != null) Attachment(name, uri) else null,
+                calls, m.optString("toolResultFor").takeIf { it.isNotBlank() }, m.optString("toolName").takeIf { it.isNotBlank() })
         })
     }.ifEmpty { listOf(ChatSession(1L, "Yeni sohbet", emptyList())) }
 } catch (_: Exception) { listOf(ChatSession(1L, "Yeni sohbet", emptyList())) }
@@ -403,7 +485,11 @@ private fun saveSessions(context: Context, sessions: List<ChatSession>) {
     val arr = JSONArray()
     sessions.forEach { session ->
         val msgs = JSONArray()
-        session.messages.forEach { msg -> msgs.put(JSONObject().put("id", msg.id).put("text", msg.text).put("user", msg.user).put("attachmentName", msg.attachment?.name ?: "").put("attachmentUri", msg.attachment?.uri ?: "")) }
+        session.messages.forEach { msg ->
+            val calls = JSONArray().apply { msg.toolCalls.forEach { put(JSONObject().put("id", it.id).put("name", it.name).put("arguments", it.arguments.toString())) } }
+            msgs.put(JSONObject().put("id", msg.id).put("text", msg.text).put("user", msg.user).put("attachmentName", msg.attachment?.name ?: "").put("attachmentUri", msg.attachment?.uri ?: "")
+                .put("toolCalls", calls).put("toolResultFor", msg.toolResultFor ?: "").put("toolName", msg.toolName ?: ""))
+        }
         arr.put(JSONObject().put("id", session.id).put("title", session.title).put("messages", msgs))
     }
     context.getSharedPreferences("bende", Context.MODE_PRIVATE).edit().putString("sessions", arr.toString()).apply()
