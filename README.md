@@ -11,12 +11,13 @@ Bu, erken aşamada ve kurulabilir bir prototiptir. Şu özellikler vardır:
 - Dosya ve görsel eki seçimi. Sağlayıcı ayarlanıp mesaj gönderildiğinde metin dosyaları (256 KB’a kadar) ve görseller (5 MB’a kadar) okunup isteğe eklenir; desteklenmeyen ikili dosyalar yalnızca dosya adıyla bildirilir.
 - OpenAI uyumlu Chat Completions ve Anthropic Messages istekleri; `/v1/models` model listesi.
 - Android Keystore içinde tutulan AES-GCM anahtarıyla API anahtarı şifreleme.
+- Android’in sistem klasör seçicisiyle seçilen proje klasöründe metin okuma/arama ve kullanıcı onayıyla dosya yazma/düzenleme/silme için sınırlı ajan araçları.
 
 Sağlayıcı ayar ekranı ve şifreli anahtar saklama API 37 emülatöründe denendi. Kullanıcı sağlayıcı anahtarı eklemediği için gerçek bir model isteği doğrulanmadı. İstekler ve seçilen eklerin desteklenen içerikleri, ayarlanan sağlayıcıya gönderilir. OpenCode Zen kendi hesabını ve API anahtarını ister; ücretsiz model erişimi ve veri kullanımı modele göre değişir. Gizlilik şartlarını denetlemediğin hassas dosyaları bu modellere gönderme.
 
 ## Emülatörde kurulum
 
-`Sonuç/Bende-debug-0.1.0.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
+`Sonuç/Bende-debug-0.2.0.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
 
 ## Kaynaktan derleme
 
@@ -28,4 +29,4 @@ Gradle Wrapper 9.8.1’i indirip sabitler. Windows’ta çalışma alanının T�
 
 ## Planlananlar
 
-Sağlayıcı bağlantı kodu hazır; gerçek anahtarla canlı istek yapılması henüz doğrulanmadı. Araç kullanan ajan, GitHub entegrasyonu, cihaz içi derleme/model, tarayıcı devri ve üretim sürüm imzası tamamlanmadı. Aşama durumu, test kanıtları ve doğrulanmayanlar için [`PROGRESS.md`](PROGRESS.md) dosyasına bakın.
+Sağlayıcı bağlantı kodu hazır; gerçek anahtarla canlı istek yapılması henüz doğrulanmadı. Ajanın sınırlı dosya araçları ve yazma onay akışı var, ancak modelle uçtan uca araç döngüsü gerçek sağlayıcı anahtarı olmadan doğrulanmadı. Shell/Git araçları, çoklu ajan, GitHub entegrasyonu, cihaz içi derleme/model, tarayıcı devri ve üretim sürüm imzası tamamlanmadı. Aşama durumu, test kanıtları ve doğrulanmayanlar için [`PROGRESS.md`](PROGRESS.md) dosyasına bakın.

@@ -21,9 +21,9 @@
 
 | Aşama | Durum | Not |
 |---|---|---|
-| 1. Temel | **Sürüyor — kısmi prototip** | Compose sohbet ekranı, yerel geçmiş, basit Markdown, yeni sohbet/oturum seçimi, dosya/görsel eki ve içerik iletimi eklendi. Görsel önizleme, akış yanıtı ve oturum yönetimi cilası eksik. |
+| 1. Temel | **Sürüyor — kısmi prototip** | Compose sohbet ekranı, yerel geçmiş, başlık/liste/inline Markdown, yeni sohbet/oturum seçimi, dosya/görsel eki ve sağlayıcıya içerik iletimi eklendi. Görsel önizleme, akış yanıtı ve oturum yönetimi cilası eksik. |
 | 2. Sağlayıcı katmanı | **Sürüyor — canlı doğrulama eksik** | OpenAI uyumlu ve Anthropic istek/listeme kodu, HTTPS taban adres doğrulaması ve Android Keystore’da AES-GCM anahtarı uygulandı. Ayarlar/şifreli kayıt API 37 emülatöründe denendi. Gerçek sağlayıcı anahtarı yok; canlı model/`/v1/models` yanıtı doğrulanmadı. Tek aktif profil var. |
-| 3. Ajan çekirdeği | Başlamadı | Dosya/shell/git araçları, onay akışı, proje sınırı, bağlam sıkıştırma ve ön plan servisi yok. |
+| 3. Ajan çekirdeği | **Sürüyor — araç çağrısı doğrulanmadı** | OpenAI/Anthropic araç şemaları ve 8 turluk yanıt/araç döngüsü eklendi. SAF klasörü kalıcı erişimle seçiliyor; dosya okuma/arama ve onaylı yazma/düzenleme/silme seçilen kökle sınırlı. Gerçek model araç çağrısı anahtar olmadan sınanamadı. Shell/Git araçları, bağlam sıkıştırma, AGENTS.md otomatik uygulama ve ön plan servisi eksik. |
 | 4. Çoklu ajan | Başlamadı | Yok. |
 | 5. GitHub ve bulut derleme | Başlamadı | OAuth, GitHub Actions/Secrets/Release veya uçtan uca proje üretim testi yok. |
 | 6. Tarayıcı devri | Başlamadı | Yok. |
@@ -37,11 +37,12 @@
 - Emülatör: Kullanıcının belirttiği gibi başka ajan tarafından kullanılan `emulator-5554` kullanılmadı. Kendi `Bende_Test_API_37` API 37 emülatörü `emulator-5558` portunda oluşturulup kullanıldı.
 - Senaryo: Uygulama açıldı; Downloads içinden `bende-sample.txt` seçildi, metin mesajına eklenip gönderildi; ek dosya tek başına da gönderildi. Başlık ve ek ekranda göründü. Uygulama kapatılıp açıldığında mesaj ve yeni kayıt biçimindeki ek adı korundu. Geçmiş çekmecesi açıldı ve seçili oturum gösterildi.
 - Sağlayıcı senaryosu: Sağlayıcı ayarları açıldı. Test anahtarı girilip kaydedildi; `provider.xml` içinde anahtarın açık metni yerine yalnızca AES-GCM şifreli veri göründü. Anahtar emülatörden silindi. Anahtar yokken mesaj gönderimi kullanıcıya anlaşılır ayar hatası gösterdi ve uygulama kapanmadı. API 37’de son süreç logunda `FATAL EXCEPTION` yok. Gerçek ağa giden sağlayıcı isteği yapılmadı.
+- Ajan çalışma alanı senaryosu: Android sistem klasör seçicisinde `Documents` klasörü seçildi; okuma/yazma URI izni alındı ve uygulama kapatılıp yeniden açıldıktan sonra `workspace.xml` içinde klasör kaydı ve sistemde kalıcı URI izni korundu. Araçlara modelden çağrı yaptırmak için gerçek sağlayıcı anahtarı bulunmadığından dosya okuma/yazma/aramanın uçtan uca araç turu sınanmadı. API 37’de son süreç logunda çökme yok.
 - Uyarlanabilirlik: Aynı emülatör penceresi 1080×2400 (telefon), 1800×2400 (~686 dp orta) ve 2400×2400 (~914 dp geniş) boyutlarına ayarlandı. Orta ve geniş pencerede kalıcı yan gezinme; kompakt görünümde açılır geçmiş çekmecesi gözlendi. Bu çözünürlük değişimi tablet/katlanabilir fiziksel aygıt testi değildir.
-- Kanıtlar: `Sonuç/Kanitlar/chat-scenario.png`, `attachment-sent.png`, `persisted-chat.png`, `history-drawer.png`, `tablet-window.png`, `expanded-window.png`, `provider-settings.png`, `provider-error.png`, `emulator-session.log`, `provider-session.log`.
+- Kanıtlar: `Sonuç/Kanitlar/chat-scenario.png`, `attachment-sent.png`, `persisted-chat.png`, `history-drawer.png`, `tablet-window.png`, `expanded-window.png`, `provider-settings.png`, `provider-error.png`, `project-workspace-drawer.png`, `agent-session.log`, `emulator-session.log`, `provider-session.log`.
 - Hata gözlemi: Son uygulama oturumu için yakalanan log’da `FATAL EXCEPTION` yok. İlk emülatör çiziminde uzun bir kare (yaklaşık 9,5 sn) kaydedildi; soğuk başlangıç/emülatör etkisi olabileceği fiziksel cihazda doğrulanmadı. Bu tek senaryo log’u genel kararlılık kanıtı değildir.
-- Commit: ilk geliştirme kontrol noktası `be817a5b21a685e240aff03f9829e38df9cafbf6`; resmi uyarlanabilir API ve son emülatör kanıtları kontrol noktası `aca7ba9`. Aşama koşulları eksik olduğu için commit’ler aşamanın tamamlandığı anlamına gelmiyor.
-- Dağıtım: Son APK `Sonuç/Bende-debug-0.1.0.apk` Android Debug sertifikasıyla V2 imza doğrulamasından geçti (sertifika SHA-256 `91517466005df246b5ceca9ece68fc567995590fa9ca2b5c32a09793a6155bd1`). APK SHA-256 `30B6D3FC2C5553B13EFBAF94B1F222953094F5698916CA08C078CC6CDAD37983`; boyut 18.712.245 bayt. Bu, üretim/release anahtarı değildir. Yerel depoda Git remote bulunmadığı ve uygulama tamamlanmadığı için GitHub Release oluşturulmadı.
+- Commit: ilk geliştirme kontrol noktası `be817a5b21a685e240aff03f9829e38df9cafbf6`; resmi uyarlanabilir API kontrol noktası `aca7ba9`; sağlayıcı katmanı ve güncel emülatör kanıtları `0317144`. Aşama koşulları eksik olduğu için commit’ler aşamanın tamamlandığı anlamına gelmiyor.
+- Dağıtım: Son APK `Sonuç/Bende-debug-0.2.0.apk` Android Debug sertifikasıyla V2 imza doğrulamasından geçti (sertifika SHA-256 `91517466005df246b5ceca9ece68fc567995590fa9ca2b5c32a09793a6155bd1`). APK SHA-256 `BD5DD324799261A0A9E4419C32C7DAA8EDAFE34A37DC1B89FB6FCC6CFAE88498`; boyut 18.692.065 bayt; versionCode 2 / versionName 0.2.0. Bu, üretim/release anahtarı değildir. Yerel depoda Git remote bulunmadığı ve uygulama tamamlanmadığı için GitHub Release oluşturulmadı.
 
 ## DOĞRULANMADI
 
@@ -57,6 +58,8 @@
 - Android Developers, [Window size classes](https://developer.android.com/develop/adaptive-apps/guides/use-window-size-classes): pencere genişliği sınıfları ve aygıt boyutu yerine mevcut pencereyi temel alma.
 - Android Developers, [Compose Material 3 Adaptive sürüm notları](https://developer.android.com/jetpack/androidx/releases/compose-material3-adaptive): kullanılan resmi uyarlanabilir Compose API’si.
 - Android Developers, [ActivityResultContracts.OpenDocument](https://developer.android.com/reference/androidx/activity/result/contract/ActivityResultContracts.OpenDocument): kullanıcı denetimli belge seçimi ve URI erişimi.
+- Android Developers, [Storage Access Framework](https://developer.android.com/training/data-storage/shared/documents-files): kullanıcının seçtiği belge/klasör için erişim ve kalıcı URI izinleri.
+- AndroidX, [DocumentFile sürüm notları](https://developer.android.com/jetpack/androidx/releases/documentfile): kullanılan `1.1.0` sürümü ve klasör belge işlemleri.
 - Android Developers, [Android Keystore system](https://developer.android.com/privacy-and-security/keystore): anahtar materyalini dışa aktarmadan kriptografik işlem yapma.
 - OpenAI, [Chat Completions API](https://platform.openai.com/docs/api-reference/chat/create): kullanılan sohbet isteği biçimi.
 - Anthropic, [API documentation](https://docs.anthropic.com/en/api/overview): Messages API kimlik doğrulama/istek protokolü.
@@ -66,8 +69,9 @@
 
 ## Bilinen sorunlar
 
-- Mesaj gönderilince yalnızca yerel geçmişe yazılır; yanıt bekleme göstergesi veya sağlayıcı hatası durumu yoktur.
-- Markdown yalnızca başlık ve basit madde işaretlerini işler; tam CommonMark/kod bloğu gösterimi değil.
-- Ekin adı/URI’si sohbet kaydına eklenir; dosya baytları kopyalanmaz veya modele aktarılmaz. İçerik URI’sinin gelecekte kullanımında sağlayıcı erişiminin iptal edilmesi ele alınmalıdır.
+- Sağlayıcı cevapları normal yanıt olarak alınır; token akışı/iptal ve gerçek model çağrısı doğrulanmadı.
+- Markdown başlık, liste, alıntı, fenced code ve basit inline kalıpları destekler; tam CommonMark/kod bloklarının ayrı temalı yüzeyi değil.
+- Ekin URI’si sohbet kaydında tutulur; istek sırasında metin/görsel içeriği okunup sağlayıcıya gönderilir. İzin iptal edilirse ek yeniden seçilmelidir.
 - Geçmiş oturumu silme/yeniden adlandırma ve veri dışa/içe aktarma yok.
+- Dosya araçları gerçek model çağrısı olmadan çalıştırılmadı. Shell ve Git araçları, çoklu ajan, iş sürerken activity kapanınca devam, Android foreground service, bağlam sıkıştırma, yerel derleme/model ve WebView devri yok.
 - Koyu tema, Android tablet/katlanabilir üzerinde gerçek test ve tam erişilebilirlik incelemesi yok.
