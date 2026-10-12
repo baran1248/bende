@@ -356,7 +356,7 @@ private fun ProviderSettingsDialog(
                         }) }
                     }
                 }
-                OutlinedTextField(baseUrl, { baseUrl = it }, label = { Text("API adresi") }, singleLine = true, modifier = Modifier.fillMaxWidth(), supportingText = { Text("Örn. https://api.openai.com veya https://openrouter.ai/api/v1") })
+                OutlinedTextField(baseUrl, { baseUrl = it }, label = { Text("API adresi") }, singleLine = true, modifier = Modifier.fillMaxWidth(), supportingText = { Text("Gemini: https://generativelanguage.googleapis.com/v1beta/openai/") })
                 OutlinedTextField(apiKey, { apiKey = it }, label = { Text("API anahtarı") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(model, { model = it }, label = { Text("Model kimliği") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (models.isNotEmpty()) {
@@ -370,6 +370,7 @@ private fun ProviderSettingsDialog(
                 Text("İsteklerin ve eklediğin içerikler seçtiğin sağlayıcıya gönderilir. OpenCode Zen ayrı hesap ve API anahtarı ister; ücretsiz modellerin veri şartları modele göre değişebilir.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
                 status?.let { Text(it, color = if (it.startsWith("Hata")) Color(0xFFB42318) else Blue, fontSize = 12.sp) }
                 OutlinedButton(onClick = { baseUrl = "https://opencode.ai/zen" }, modifier = Modifier.fillMaxWidth()) { Text("OpenCode Zen adresini kullan") }
+                OutlinedButton(onClick = { kind = ProviderKind.OPENAI; baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai" }, modifier = Modifier.fillMaxWidth()) { Text("Gemini API adresini kullan") }
                 TextButton(onClick = { apiKey = ""; onClearKey(); status = "Bu cihazdaki saklı anahtar silindi." }, modifier = Modifier.fillMaxWidth()) { Text("Saklı anahtarı sil") }
             }
         },

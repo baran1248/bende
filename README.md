@@ -11,16 +11,16 @@ Bu, erken aşamada ve kurulabilir bir prototiptir. Şu özellikler vardır:
 - Dört ayrı sohbet ajanını eşzamanlı çalıştırma ve her birinin ilerlemesini geçmişte görme.
 - Temel Markdown gösterimi.
 - Dosya ve görsel eki seçimi. Sağlayıcı ayarlanıp mesaj gönderildiğinde metin dosyaları (256 KB’a kadar) ve görseller (5 MB’a kadar) okunup isteğe eklenir; desteklenmeyen ikili dosyalar yalnızca dosya adıyla bildirilir.
-- OpenAI uyumlu Chat Completions ve Anthropic Messages istekleri; `/v1/models` model listesi.
+- OpenAI uyumlu Chat Completions ve Anthropic Messages istekleri; `/v1/models` model listesi. Gemini API’nin OpenAI uyumlu adresi ve model listeleme yolu da desteklenir.
 - Android Keystore içinde tutulan AES-GCM anahtarıyla API anahtarı şifreleme.
 - Android’in sistem klasör seçicisiyle seçilen proje klasöründe metin okuma/arama ve kullanıcı onayıyla dosya yazma/düzenleme/silme için sınırlı ajan araçları.
 - Seçilen proje kökündeki `AGENTS.md` talimatlarını sağlayıcıya proje rehberi olarak ekleme (32 KB dosya sınırı).
 
-Sağlayıcı ayar ekranı ve şifreli anahtar saklama API 37 emülatöründe denendi. Kullanıcı sağlayıcı anahtarı eklemediği için gerçek bir model isteği doğrulanmadı. Mesajlar, seçilen eklerin desteklenen içerikleri ve kök `AGENTS.md` dosyası (varsa), ayarlanan sağlayıcıya gönderilir; talimat dosyasını uygulama içinden önizleyebilirsin. Çoklu ajan akışının gerçek sağlayıcıyla eşzamanlı çalışması henüz doğrulanmadı. OpenCode Zen kendi hesabını ve API anahtarını ister; ücretsiz model erişimi ve veri kullanımı modele göre değişir. Gizlilik şartlarını denetlemediğin hassas dosyaları bu modellere gönderme.
+Sağlayıcı ayar ekranı ve şifreli anahtar saklama API 37 emülatöründe denendi. Gemini için ayar ekranındaki hızlı adresi seçip API anahtarı girdikten sonra modelleri listeleyebilirsin. Gerçek Gemini isteği henüz doğrulanmadı. Mesajlar, seçilen eklerin desteklenen içerikleri ve kök `AGENTS.md` dosyası (varsa), ayarlanan sağlayıcıya gönderilir; talimat dosyasını uygulama içinden önizleyebilirsin. Çoklu ajan akışının gerçek sağlayıcıyla eşzamanlı çalışması henüz doğrulanmadı. OpenCode Zen kendi hesabını ve API anahtarını ister; ücretsiz model erişimi ve veri kullanımı modele göre değişir. Gizlilik şartlarını denetlemediğin hassas dosyaları bu modellere gönderme.
 
 ## Emülatörde kurulum
 
-`Sonuç/Bende-debug-0.6.0.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
+`Sonuç/Bende-debug-0.6.1.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
 
 ## Kaynaktan derleme
 
