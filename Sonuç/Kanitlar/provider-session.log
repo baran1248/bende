@@ -1,0 +1,30 @@
+--------- beginning of main
+10-12 15:25:05.687 10052 10052 I libprocessgroup: Created cgroup /sys/fs/cgroup/apps/uid_10235/pid_10052
+10-12 15:25:05.707 10052 10052 I Zygote  : Process 10052 created for com.bende.app
+10-12 15:25:05.708 10052 10052 I com.bende.app: Late-enabling -Xcheck:jni
+10-12 15:25:05.738 10052 10052 I com.bende.app: Using generational CollectorTypeCMC GC.
+10-12 15:25:05.740 10052 10052 W com.bende.app: Unexpected CPU variant for x86: x86_64.
+10-12 15:25:05.740 10052 10052 W com.bende.app: Known variants: atom, sandybridge, silvermont, goldmont, goldmont-plus, goldmont-without-sha-xsaves, tremont, kabylake, alderlake, pantherlake, default
+10-12 15:25:05.780 10052 10052 D nativeloader: Load libframework-connectivity-tiramisu-jni.so using APEX ns com_android_tethering for caller /apex/com.android.tethering/javalib/framework-connectivity-t.jar: ok
+10-12 15:25:05.822 10052 10052 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.extensions.jar
+10-12 15:25:05.822 10052 10052 D ApplicationLoaders: Returning zygote-cached class loader: /system_ext/framework/androidx.window.sidecar.jar
+10-12 15:25:06.384 10052 10052 D nativeloader: Configuring clns-9 for other apk /data/app/~~mbtVyHjWIymc6MlI1MfLqw==/com.bende.app-w3YJ1nAEFkKy6nOMLKfxPw==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~mbtVyHjWIymc6MlI1MfLqw==/com.bende.app-w3YJ1nAEFkKy6nOMLKfxPw==/lib/x86_64:/data/app/~~mbtVyHjWIymc6MlI1MfLqw==/com.bende.app-w3YJ1nAEFkKy6nOMLKfxPw==/base.apk!/lib/x86_64, permitted_path=/data:/mnt/expand:/data/user/0/com.bende.app
+10-12 15:25:06.398 10052 10052 V GraphicsEnvironment: Currently set values for:
+10-12 15:25:06.399 10052 10052 V GraphicsEnvironment:   angle_gl_driver_selection_pkgs=[]
+10-12 15:25:06.399 10052 10052 V GraphicsEnvironment:   angle_gl_driver_selection_values=[]
+10-12 15:25:06.399 10052 10052 V GraphicsEnvironment: com.bende.app is not listed in per-application setting
+10-12 15:25:06.399 10052 10052 V GraphicsEnvironment: No special selections for ANGLE, returning default driver choice
+10-12 15:25:06.401 10052 10052 V GraphicsEnvironment: Neither updatable production driver nor prerelease driver is supported.
+--------- beginning of system
+10-12 15:25:06.502 10052 10075 I DisplayManager: Choreographer implicitly registered for the refresh rate.
+10-12 15:25:06.579 10052 10052 D CompatChangeReporter: Compat change id reported: 377864165; UID 10235; state: ENABLED
+10-12 15:25:06.586 10052 10075 I GFXSTREAM: [eglDisplay.cpp(297)] Opening libGLESv1_CM_emulation.so
+10-12 15:25:06.589 10052 10075 I GFXSTREAM: [eglDisplay.cpp(297)] Opening libGLESv2_emulation.so
+10-12 15:25:06.591 10052 10075 W libc    : Access denied finding property "vendor.mesa.virtgpu.kumquat"
+10-12 15:25:06.604 10052 10075 W HWUI    : Failed to initialize 101010-2 format, error = EGL_SUCCESS
+10-12 15:25:06.766 10052 10052 W HWUI    : Unknown dataspace 0
+10-12 15:25:06.782 10052 10080 W libc    : Access denied finding property "vendor.mesa.virtgpu.kumquat"
+10-12 15:25:06.854 10052 10052 D WindowOnBackDispatcher: setTopOnBackInvokedCallback (unwrapped): android.app.Activity$$ExternalSyntheticLambda0@1294020
+10-12 15:25:07.409 10052 10058 I com.bende.app: Compiler allocated 5250KB to compile void android.view.ViewRootImpl.performTraversals(long)
+10-12 15:25:07.656 10052 10052 I WindowExtensionsImpl: Initializing Window Extensions, vendor API level=10, activity embedding enabled=true
+10-12 15:25:07.669 10052 10052 W UiContextUtils: Requested context is a non-UI Context. Creating a UI-Context with display: 0. Context: Context=android.app.Application@d72893a, of which baseContext=android.app.ContextImpl@331b92f
