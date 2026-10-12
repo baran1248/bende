@@ -4,7 +4,15 @@
 
 ## Mevcut durum
 
-Bu ilk geliştirme yapısıdır. Açık mavi-beyaz sohbet arayüzü, oturum geçmişi, basit Markdown gösterimi, dosya seçici ve yerel sohbet kaydı bulunur. Model sağlayıcısı henüz bağlanmadığından mesajlar bir yapay zekâ servisine gönderilmez ve asistan yanıtı üretilmez. Seçilen dosyanın adı ve uygulamanın açabildiği kalıcı içerik URI’si oturuma kaydedilir; dosya içeriği henüz modele aktarılmaz.
+Bu, erken aşamada ve kurulabilir bir prototiptir. Şu özellikler vardır:
+
+- Compose sohbet arayüzü, oturum geçmişi ve cihazda yerel kayıt.
+- Temel Markdown gösterimi.
+- Dosya ve görsel eki seçimi. Sağlayıcı ayarlanıp mesaj gönderildiğinde metin dosyaları (256 KB’a kadar) ve görseller (5 MB’a kadar) okunup isteğe eklenir; desteklenmeyen ikili dosyalar yalnızca dosya adıyla bildirilir.
+- OpenAI uyumlu Chat Completions ve Anthropic Messages istekleri; `/v1/models` model listesi.
+- Android Keystore içinde tutulan AES-GCM anahtarıyla API anahtarı şifreleme.
+
+Sağlayıcı ayar ekranı ve şifreli anahtar saklama API 37 emülatöründe denendi. Kullanıcı sağlayıcı anahtarı eklemediği için gerçek bir model isteği doğrulanmadı. İstekler ve seçilen eklerin desteklenen içerikleri, ayarlanan sağlayıcıya gönderilir. OpenCode Zen kendi hesabını ve API anahtarını ister; ücretsiz model erişimi ve veri kullanımı modele göre değişir. Gizlilik şartlarını denetlemediğin hassas dosyaları bu modellere gönderme.
 
 ## Emülatörde kurulum
 
@@ -20,4 +28,4 @@ Gradle Wrapper 9.8.1’i indirip sabitler. Windows’ta çalışma alanının T�
 
 ## Planlananlar
 
-OpenAI uyumlu/Anthropic sağlayıcıları, Keystore ile anahtar saklama, model yanıtları, araç kullanan ajan, GitHub entegrasyonu, yerel derleme/model, tarayıcı devri ve yayın imzası henüz geliştirilmemiştir. Aşama kayıtları, test kanıtları ve doğrulanmayanlar için [`PROGRESS.md`](PROGRESS.md) dosyasına bakın.
+Sağlayıcı bağlantı kodu hazır; gerçek anahtarla canlı istek yapılması henüz doğrulanmadı. Araç kullanan ajan, GitHub entegrasyonu, cihaz içi derleme/model, tarayıcı devri ve üretim sürüm imzası tamamlanmadı. Aşama durumu, test kanıtları ve doğrulanmayanlar için [`PROGRESS.md`](PROGRESS.md) dosyasına bakın.

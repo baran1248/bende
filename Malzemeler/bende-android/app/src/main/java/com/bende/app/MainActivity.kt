@@ -19,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
@@ -36,6 +38,7 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -48,6 +51,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.launch
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 import org.json.JSONArray
@@ -75,7 +80,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun BendeTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = lightColorScheme(primary = Blue, onPrimary = Color.White, background = Color.White, surface = Color.White, onSurface = Ink, outline = Line), content = content)
+    MaterialTheme(colorScheme = lightColorScheme(primary = Blue, onPrimary = Color.White, secondary = Blue, onSecondary = Color.White, tertiary = Blue, onTertiary = Color.White, background = Color.White, surface = Color.White, surfaceContainer = Color.White, surfaceContainerHigh = Color.White, surfaceContainerLow = SurfaceSoft, surfaceVariant = SurfaceSoft, onSurface = Ink, onSurfaceVariant = Muted, outline = Line), content = content)
 }
 
 @Composable
@@ -90,6 +95,10 @@ private fun BendeApp() {
     var attachment by remember { mutableStateOf<Attachment?>(null) }
     var showHistory by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var providerConfig by remember { mutableStateOf(ProviderStore.load(context)) }
+    var sending by remember { mutableStateOf(false) }
+    var sendError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val current = sessions.firstOrNull { it.id == selectedId } ?: sessions.first()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let {
@@ -105,24 +114,40 @@ private fun BendeApp() {
         persist(listOf(session) + sessions); selectedId = session.id; input = ""; attachment = null
     }
     fun send() {
-        if (input.isBlank() && attachment == null) return
+        if ((input.isBlank() && attachment == null) || sending) return
         val value = input.trim()
         val userMessage = Message(System.currentTimeMillis(), value, true, attachment)
         val updated = current.copy(title = if (current.messages.isEmpty()) value.take(32).ifBlank { attachment?.name ?: "Yeni sohbet" } else current.title, messages = current.messages + userMessage)
         persist(sessions.map { if (it.id == current.id) updated else it })
+        val targetId = current.id
+        val requestHistory = updated.messages
         input = ""; attachment = null
+        sendError = null
+        sending = true
+        scope.launch {
+            try {
+                val answer = ProviderApi.complete(context, providerConfig, requestHistory)
+                val latest = sessions.firstOrNull { it.id == targetId }
+                if (latest != null) persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = latest.messages + Message(System.currentTimeMillis(), answer, false)) else session })
+            } catch (error: Exception) {
+                sendError = error.message ?: "İstek tamamlanamadı. Bağlantı ve sağlayıcı ayarlarını kontrol edin."
+            } finally { sending = false }
+        }
     }
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
       Row(Modifier.fillMaxSize()) {
         if (persistentHistory) HistoryPanel(sessions, selectedId, onSelect = { selectedId = it.id; showHistory = false }, onNew = ::newChat, onSettings = { showSettings = true }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
-            TopBar(current.title, !persistentHistory, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
+            TopBar(current.title, !persistentHistory, providerConfig.model.takeIf { providerConfig.apiKey.isNotBlank() && it.isNotBlank() }, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (current.messages.isEmpty()) Welcome(onPrompt = { input = it })
-                else MessagesList(current.messages, modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 72.dp else 20.dp))
+                else MessagesList(current.messages, sending = sending && selectedId == current.id, modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 72.dp else 20.dp))
+                sendError?.let { error ->
+                    Text("Bağlantı hatası: $error", Modifier.align(Alignment.TopCenter).padding(12.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFFFF1F1)).padding(12.dp), color = Color(0xFFB42318), fontSize = 12.sp)
+                }
             }
-            Composer(input, { input = it }, attachment, { attachment = null }, onAttach = { filePicker.launch(arrayOf("*/*")) }, onSend = ::send, modifier = Modifier.fillMaxWidth().padding(horizontal = if (wide) 72.dp else 16.dp, vertical = 12.dp))
+            Composer(input, { input = it }, attachment, { attachment = null }, onAttach = { filePicker.launch(arrayOf("*/*")) }, onSend = ::send, sending = sending, modifier = Modifier.fillMaxWidth().padding(horizontal = if (wide) 72.dp else 16.dp, vertical = 12.dp))
             Text("Bende hata yapabilir. Önemli bilgileri kontrol edin.", Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp), color = Muted, fontSize = 11.sp)
         }
       }
@@ -133,15 +158,90 @@ private fun BendeApp() {
           }
       }
     }
-    if (showSettings) AlertDialog(onDismissRequest = { showSettings = false }, title = { Text("Ayarlar") }, text = { Text("Sağlayıcı, model ve ajan ayarları sonraki aşamada eklenecek.") }, confirmButton = { TextButton(onClick = { showSettings = false }) { Text("Tamam") } })
+    if (showSettings) ProviderSettingsDialog(
+        initial = providerConfig,
+        onDismiss = { showSettings = false },
+        onSave = { config -> ProviderStore.save(context, config); providerConfig = ProviderStore.load(context); showSettings = false },
+        onClearKey = { ProviderStore.clearKey(context); providerConfig = ProviderStore.load(context) }
+    )
 }
 
 @Composable
-private fun TopBar(title: String, showMenu: Boolean, onMenu: () -> Unit, onSettings: () -> Unit) {
+private fun ProviderSettingsDialog(
+    initial: ProviderConfig,
+    onDismiss: () -> Unit,
+    onSave: (ProviderConfig) -> Unit,
+    onClearKey: () -> Unit
+) {
+    var kind by remember { mutableStateOf(initial.kind) }
+    var baseUrl by remember { mutableStateOf(initial.baseUrl) }
+    var apiKey by remember { mutableStateOf(initial.apiKey) }
+    var model by remember { mutableStateOf(initial.model) }
+    var expanded by remember { mutableStateOf(false) }
+    var models by remember { mutableStateOf(emptyList<String>()) }
+    var loading by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        containerColor = Color.White,
+        title = { Text("Model sağlayıcısı") },
+        text = {
+            Column(Modifier.fillMaxWidth().heightIn(max = 570.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("OpenAI uyumlu bir API veya Anthropic kullan. API anahtarı bu cihazda Android Keystore ile şifrelenerek saklanır.", color = Muted, fontSize = 12.sp)
+                Box {
+                    OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("${kind.label}  ▾") }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        ProviderKind.entries.forEach { option -> DropdownMenuItem(text = { Text(option.label) }, onClick = {
+                            kind = option
+                            if (baseUrl == "https://api.openai.com" || baseUrl == "https://api.anthropic.com") baseUrl = if (option == ProviderKind.ANTHROPIC) "https://api.anthropic.com" else "https://api.openai.com"
+                            expanded = false
+                        }) }
+                    }
+                }
+                OutlinedTextField(baseUrl, { baseUrl = it }, label = { Text("API adresi") }, singleLine = true, modifier = Modifier.fillMaxWidth(), supportingText = { Text("Örn. https://api.openai.com veya https://openrouter.ai/api/v1") })
+                OutlinedTextField(apiKey, { apiKey = it }, label = { Text("API anahtarı") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(model, { model = it }, label = { Text("Model kimliği") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                if (models.isNotEmpty()) {
+                    Text("Bulunan modeller", color = Muted, fontSize = 12.sp)
+                    Column(Modifier.heightIn(max = 150.dp).verticalScroll(rememberScrollState())) {
+                        models.take(80).forEach { id ->
+                            TextButton(onClick = { model = id }, modifier = Modifier.fillMaxWidth()) { Text(id, modifier = Modifier.fillMaxWidth(), maxLines = 1) }
+                        }
+                    }
+                }
+                Text("İsteklerin ve eklediğin içerikler seçtiğin sağlayıcıya gönderilir. OpenCode Zen ayrı hesap ve API anahtarı ister; ücretsiz modellerin veri şartları modele göre değişebilir.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                status?.let { Text(it, color = if (it.startsWith("Hata")) Color(0xFFB42318) else Blue, fontSize = 12.sp) }
+                OutlinedButton(onClick = { baseUrl = "https://opencode.ai/zen" }, modifier = Modifier.fillMaxWidth()) { Text("OpenCode Zen adresini kullan") }
+                TextButton(onClick = { apiKey = ""; onClearKey(); status = "Bu cihazdaki saklı anahtar silindi." }, modifier = Modifier.fillMaxWidth()) { Text("Saklı anahtarı sil") }
+            }
+        },
+        confirmButton = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(enabled = !loading, onClick = {
+                    val config = ProviderConfig(kind, baseUrl, apiKey, model)
+                    loading = true; status = "Modeller yükleniyor…"
+                    scope.launch {
+                        try { models = ProviderApi.listModels(config); status = if (models.isEmpty()) "Bağlantı başarılı; model bulunamadı." else "${models.size} model bulundu. Birini seçebilirsin." }
+                        catch (error: Exception) { status = "Hata: ${error.message ?: "Bağlantı kurulamadı."}" }
+                        finally { loading = false }
+                    }
+                }) { if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Modelleri bul") }
+                TextButton(onClick = { onSave(ProviderConfig(kind, baseUrl, apiKey, model)) }) { Text("Kaydet") }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("İptal") } }
+    )
+}
+
+@Composable
+private fun TopBar(title: String, showMenu: Boolean, model: String?, onMenu: () -> Unit, onSettings: () -> Unit) {
     Row(Modifier.fillMaxWidth().height(64.dp).border(width = 0.5.dp, color = Line).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         if (showMenu) IconButton(onClick = onMenu) { Icon(Icons.Default.Menu, contentDescription = "Sohbet geçmişi", tint = Ink) }
         Text(title, Modifier.weight(1f), color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
-        Text("Model bağlanmadı", Modifier.clip(RoundedCornerShape(16.dp)).background(SurfaceSoft).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 8.dp), color = Muted, fontSize = 12.sp)
+        Text(model?.let { "Model: $it" } ?: "Model bağlanmadı", Modifier.clip(RoundedCornerShape(16.dp)).background(SurfaceSoft).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 8.dp), color = Muted, fontSize = 12.sp, maxLines = 1)
         IconButton(onClick = onSettings) { Icon(Icons.Default.MoreHoriz, contentDescription = "Diğer seçenekler", tint = Muted) }
     }
 }
@@ -201,7 +301,7 @@ private fun Suggestion(icon: androidx.compose.ui.graphics.vector.ImageVector, ti
 }
 
 @Composable
-private fun MessagesList(messages: List<Message>, modifier: Modifier = Modifier) {
+private fun MessagesList(messages: List<Message>, sending: Boolean = false, modifier: Modifier = Modifier) {
     LazyColumn(modifier, contentPadding = PaddingValues(top = 24.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         items(messages, key = { it.id }) { message ->
             if (message.user) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -214,26 +314,59 @@ private fun MessagesList(messages: List<Message>, modifier: Modifier = Modifier)
                 Column(Modifier.padding(start = 11.dp).widthIn(max = 600.dp)) { Text("Bende", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp); MarkdownText(message.text, Ink, Modifier.padding(top = 6.dp)) }
             }
         }
+        if (sending) item(key = "assistant-thinking") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Blue)
+                Text("Yanıt hazırlanıyor…", Modifier.padding(start = 10.dp), color = Muted, fontSize = 13.sp)
+            }
+        }
     }
 }
 
 @Composable
 private fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
     val annotated = buildAnnotatedString {
+        var inCodeBlock = false
         text.lines().forEachIndexed { i, line ->
             if (i > 0) append("\n")
-            val heading = line.startsWith("#")
-            val clean = line.trimStart('#').trim()
-            if (heading) withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 18.sp, color = color)) { append(clean) }
-            else if (line.startsWith("- ") || line.startsWith("* ")) { append("• "); append(line.drop(2)) }
-            else append(line.replace("**", ""))
+            if (line.trimStart().startsWith("```")) {
+                inCodeBlock = !inCodeBlock
+            } else if (inCodeBlock) {
+                withStyle(SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, background = SurfaceSoft, color = color)) { append("  $line  ") }
+            } else {
+                val heading = Regex("^#{1,6}\\s+").containsMatchIn(line)
+                val clean = if (heading) line.replaceFirst(Regex("^#{1,6}\\s+"), "") else line
+                when {
+                    heading -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 18.sp, color = color)) { appendInlineMarkdown(clean, color) }
+                    clean.startsWith("- ") || clean.startsWith("* ") -> { append("• "); appendInlineMarkdown(clean.drop(2), color) }
+                    clean.matches(Regex("^\\d+\\.\\s+.*")) -> { append(clean.substringBefore('.') + ". "); appendInlineMarkdown(clean.substringAfter(". "), color) }
+                    clean.startsWith("> ") -> withStyle(SpanStyle(color = Muted, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { appendInlineMarkdown(clean.drop(2), color) }
+                    else -> appendInlineMarkdown(clean, color)
+                }
+            }
         }
     }
     Text(annotated, modifier, color = color, fontSize = 14.sp, lineHeight = 22.sp)
 }
 
+private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdown(text: String, color: Color) {
+    val token = Regex("(\\*\\*.+?\\*\\*|__.+?__|`[^`]+`|\\*[^*]+\\*|_[^_]+_)")
+    var cursor = 0
+    token.findAll(text).forEach { match ->
+        append(text.substring(cursor, match.range.first))
+        val raw = match.value
+        when {
+            raw.startsWith("**") || raw.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(raw.substring(2, raw.length - 2)) }
+            raw.startsWith("`") -> withStyle(SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, background = SurfaceSoft, color = color)) { append(raw.substring(1, raw.length - 1)) }
+            else -> withStyle(SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { append(raw.substring(1, raw.length - 1)) }
+        }
+        cursor = match.range.last + 1
+    }
+    append(text.substring(cursor))
+}
+
 @Composable
-private fun Composer(input: String, onInput: (String) -> Unit, attachment: Attachment?, clearAttachment: () -> Unit, onAttach: () -> Unit, onSend: () -> Unit, modifier: Modifier = Modifier) {
+private fun Composer(input: String, onInput: (String) -> Unit, attachment: Attachment?, clearAttachment: () -> Unit, onAttach: () -> Unit, onSend: () -> Unit, sending: Boolean, modifier: Modifier = Modifier) {
     Column(modifier.clip(RoundedCornerShape(20.dp)).border(1.dp, Line, RoundedCornerShape(20.dp)).background(Color.White).padding(10.dp)) {
         AnimatedVisibility(attachment != null) {
             Row(Modifier.padding(start = 6.dp, bottom = 8.dp).clip(RoundedCornerShape(8.dp)).background(SurfaceSoft).padding(start = 9.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -246,7 +379,7 @@ private fun Composer(input: String, onInput: (String) -> Unit, attachment: Attac
                 if (input.isEmpty()) Text("Bende'ye mesaj yaz", color = Color(0xFF98A2B3), fontSize = 14.sp)
                 BasicTextField(value = input, onValueChange = onInput, modifier = Modifier.fillMaxWidth(), textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp, lineHeight = 20.sp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { onSend() }), maxLines = 5)
             }
-            IconButton(onClick = onSend, modifier = Modifier.size(40.dp).clip(CircleShape).background(if (input.isNotBlank() || attachment != null) Blue else Color(0xFFE5E7EB))) { Icon(Icons.AutoMirrored.Filled.Send, "Gönder", tint = Color.White, modifier = Modifier.size(18.dp)) }
+            IconButton(onClick = onSend, enabled = !sending && (input.isNotBlank() || attachment != null), modifier = Modifier.size(40.dp).clip(CircleShape).background(if (!sending && (input.isNotBlank() || attachment != null)) Blue else Color(0xFFE5E7EB))) { Icon(Icons.AutoMirrored.Filled.Send, "Gönder", tint = Color.White, modifier = Modifier.size(18.dp)) }
         }
     }
 }
