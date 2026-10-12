@@ -56,6 +56,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 import org.json.JSONArray
@@ -66,6 +68,7 @@ private val Ink = Color(0xFF182230)
 private val Muted = Color(0xFF667085)
 private val Line = Color(0xFFE5E7EB)
 private val SurfaceSoft = Color(0xFFF7F8FA)
+private const val MAX_CONCURRENT_AGENTS = 4
 
 data class Attachment(val name: String, val uri: String?)
 data class Message(
@@ -109,8 +112,8 @@ private fun BendeApp() {
     var showSettings by remember { mutableStateOf(false) }
     var providerConfig by remember { mutableStateOf(ProviderStore.load(context)) }
     var projectName by remember { mutableStateOf(ProjectWorkspace.name(context)) }
-    var sending by remember { mutableStateOf(false) }
-    var sendError by remember { mutableStateOf<String?>(null) }
+    var sendingSessionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var sendErrors by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
     var pendingApproval by remember { mutableStateOf<ToolApproval?>(null) }
     var editingSession by remember { mutableStateOf<ChatSession?>(null) }
     var editedTitle by remember { mutableStateOf("") }
@@ -120,6 +123,7 @@ private fun BendeApp() {
     var instructionsText by remember { mutableStateOf<String?>(null) }
     var instructionsError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val approvalMutex = remember { Mutex() }
     val current = sessions.firstOrNull { it.id == selectedId } ?: sessions.first()
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         uri?.let {
@@ -141,7 +145,7 @@ private fun BendeApp() {
     fun persist(next: List<ChatSession>) { sessions = next; saveSessions(context, next) }
     fun newChat() {
         val session = ChatSession(System.currentTimeMillis(), "Yeni sohbet", emptyList())
-        persist(listOf(session) + sessions); selectedId = session.id; input = ""; attachment = null; sendError = null
+        persist(listOf(session) + sessions); selectedId = session.id; input = ""; attachment = null
     }
     fun renameSession(session: ChatSession) {
         val title = editedTitle.trim().take(80)
@@ -149,13 +153,13 @@ private fun BendeApp() {
         editingSession = null
     }
     fun deleteSession(session: ChatSession) {
-        if (sending) return
+        if (session.id in sendingSessionIds) return
         val remaining = sessions.filterNot { it.id == session.id }
         val next = remaining.ifEmpty { listOf(ChatSession(System.currentTimeMillis(), "Yeni sohbet", emptyList())) }
         persist(next)
         if (selectedId == session.id) {
             selectedId = next.first().id
-            sendError = null
+            sendErrors = sendErrors - session.id
         }
         deletingSession = null
     }
@@ -175,7 +179,11 @@ private fun BendeApp() {
         }
     }
     fun send() {
-        if ((input.isBlank() && attachment == null) || sending) return
+        if ((input.isBlank() && attachment == null) || current.id in sendingSessionIds) return
+        if (sendingSessionIds.size >= MAX_CONCURRENT_AGENTS) {
+            sendErrors = sendErrors + (current.id to "En fazla $MAX_CONCURRENT_AGENTS sohbet ajanı aynı anda çalışabilir.")
+            return
+        }
         val value = input.trim()
         val userMessage = Message(System.currentTimeMillis(), value, true, attachment)
         val updated = current.copy(title = if (current.messages.isEmpty()) value.take(32).ifBlank { attachment?.name ?: "Yeni sohbet" } else current.title, messages = current.messages + userMessage)
@@ -183,8 +191,8 @@ private fun BendeApp() {
         val targetId = current.id
         val requestHistory = updated.messages
         input = ""; attachment = null
-        sendError = null
-        sending = true
+        sendErrors = sendErrors - current.id
+        sendingSessionIds = sendingSessionIds + current.id
         scope.launch {
             try {
                 var history = requestHistory
@@ -203,45 +211,46 @@ private fun BendeApp() {
                     sessions.firstOrNull { it.id == targetId }?.let { latest -> persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = history) else session }) }
                     for (call in answer.toolCalls) {
                         val result = if (AgentTools.needsApproval(call.name)) {
-                            val request = ToolApproval(call, CompletableDeferred())
-                            pendingApproval = request
-                            val approved = request.decision.await()
-                            pendingApproval = null
-                            if (approved) runCatching { AgentTools.execute(context, call) }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
-                            else "Kullanıcı işlemi reddetti; dosya değiştirilmedi."
+                            approvalMutex.withLock {
+                                val request = ToolApproval(call, CompletableDeferred())
+                                pendingApproval = request
+                                val approved = try { request.decision.await() } finally { pendingApproval = null }
+                                if (approved) runCatching { AgentTools.execute(context, call) }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
+                                else "Kullanıcı işlemi reddetti; dosya değiştirilmedi."
+                            }
                         } else runCatching { AgentTools.execute(context, call) }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
                         val toolResult = Message(System.currentTimeMillis(), result, false, toolResultFor = call.id, toolName = call.name)
                         history = history + toolResult
                         sessions.firstOrNull { it.id == targetId }?.let { latest -> persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = history) else session }) }
                     }
                 }
-                if (!completed) sendError = "Ajan 8 araç/yanıt adımı sonunda durdu. Kaldığı yerden yeni mesajla devam edebilirsin."
+                if (!completed) sendErrors = sendErrors + (targetId to "Ajan 8 araç/yanıt adımı sonunda durdu. Kaldığı yerden yeni mesajla devam edebilirsin.")
             } catch (error: Exception) {
-                sendError = error.message ?: "İstek tamamlanamadı. Bağlantı ve sağlayıcı ayarlarını kontrol edin."
-            } finally { sending = false }
+                sendErrors = sendErrors + (targetId to (error.message ?: "İstek tamamlanamadı. Bağlantı ve sağlayıcı ayarlarını kontrol edin."))
+            } finally { sendingSessionIds = sendingSessionIds - targetId }
         }
     }
 
     Box(Modifier.fillMaxSize().background(Color.White)) {
       Row(Modifier.fillMaxSize()) {
-        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = ::newChat, onSettings = { showSettings = true }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
+        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, activeSessionIds = sendingSessionIds, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendErrors = sendErrors - it.id }, onNew = ::newChat, onSettings = { showSettings = true }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
             TopBar(current.title, !persistentHistory, providerConfig.model.takeIf { providerConfig.apiKey.isNotBlank() && it.isNotBlank() }, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (current.messages.isEmpty()) Welcome(onPrompt = { input = it })
-                else MessagesList(current.messages, sending = sending && selectedId == current.id, modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 72.dp else 20.dp))
-                sendError?.let { error ->
+                else MessagesList(current.messages, sending = current.id in sendingSessionIds, modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 72.dp else 20.dp))
+                sendErrors[current.id]?.let { error ->
                     Text("Bağlantı hatası: $error", Modifier.align(Alignment.TopCenter).padding(12.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFFFF1F1)).padding(12.dp), color = Color(0xFFB42318), fontSize = 12.sp)
                 }
             }
-            Composer(input, { input = it }, attachment, { attachment = null }, onAttach = { filePicker.launch(arrayOf("*/*")) }, onSend = ::send, sending = sending, modifier = Modifier.fillMaxWidth().padding(horizontal = if (wide) 72.dp else 16.dp, vertical = 12.dp))
+            Composer(input, { input = it }, attachment, { attachment = null }, onAttach = { filePicker.launch(arrayOf("*/*")) }, onSend = ::send, sending = current.id in sendingSessionIds, modifier = Modifier.fillMaxWidth().padding(horizontal = if (wide) 72.dp else 16.dp, vertical = 12.dp))
             Text("Bende hata yapabilir. Önemli bilgileri kontrol edin.", Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp), color = Muted, fontSize = 11.sp)
         }
       }
       if (!persistentHistory && showHistory) {
           Box(Modifier.fillMaxSize()) {
               Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)).clickable { showHistory = false })
-              HistoryPanel(sessions, selectedId, projectName, allowDelete = !sending, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendError = null }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
+              HistoryPanel(sessions, selectedId, projectName, activeSessionIds = sendingSessionIds, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendErrors = sendErrors - it.id }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
           }
       }
     }
@@ -393,7 +402,7 @@ private fun TopBar(title: String, showMenu: Boolean, model: String?, onMenu: () 
 }
 
 @Composable
-private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, allowDelete: Boolean, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onRename: (ChatSession) -> Unit, onDelete: (ChatSession) -> Unit, onInstructions: () -> Unit, modifier: Modifier = Modifier) {
+private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, activeSessionIds: Set<Long>, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onRename: (ChatSession) -> Unit, onDelete: (ChatSession) -> Unit, onInstructions: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxHeight().background(Color(0xFFFAFAFB)).border(width = 0.5.dp, color = Line).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Blue), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
@@ -415,11 +424,15 @@ private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectN
                         Icon(Icons.Default.ChatBubbleOutline, null, Modifier.size(16.dp), tint = if (session.id == selectedId) Blue else Muted)
                         Text(session.title, Modifier.padding(start = 9.dp), color = Ink, fontSize = 13.sp, maxLines = 1)
                     }
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreHoriz, contentDescription = "${session.title} seçenekleri", tint = Muted, modifier = Modifier.size(18.dp)) }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                            DropdownMenuItem(text = { Text("Yeniden adlandır") }, onClick = { menuExpanded = false; onRename(session) })
-                            DropdownMenuItem(text = { Text("Sohbeti sil") }, enabled = allowDelete, onClick = { menuExpanded = false; onDelete(session) })
+                    if (session.id in activeSessionIds) {
+                        CircularProgressIndicator(Modifier.padding(horizontal = 10.dp).size(16.dp), strokeWidth = 2.dp)
+                    } else {
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreHoriz, contentDescription = "${session.title} seçenekleri", tint = Muted, modifier = Modifier.size(18.dp)) }
+                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                DropdownMenuItem(text = { Text("Yeniden adlandır") }, onClick = { menuExpanded = false; onRename(session) })
+                                DropdownMenuItem(text = { Text("Sohbeti sil") }, onClick = { menuExpanded = false; onDelete(session) })
+                            }
                         }
                     }
                 }
