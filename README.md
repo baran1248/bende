@@ -18,7 +18,7 @@ Sağlayıcı ayar ekranı ve şifreli anahtar saklama API 37 emülatöründe den
 
 ## Emülatörde kurulum
 
-`Sonuç/Bende-debug-0.4.0.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
+`Sonuç/Bende-debug-0.4.1.apk` dosyasını Android telefona veya emülatöre aktarın ve yükleyin. Bu APK, yerel geliştirme ve deneme için Android debug anahtarıyla imzalanmıştır; yayıma hazır bir imza değildir.
 
 ## Kaynaktan derleme
 

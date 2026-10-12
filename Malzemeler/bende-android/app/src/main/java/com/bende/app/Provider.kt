@@ -252,7 +252,7 @@ object ProviderApi {
                 require(total <= maximum) { "Sağlayıcı yanıtı 2 MB sınırını aşıyor." }
             }
         }
-        return output.toString(Charsets.UTF_8.name())
+        return String(output.toByteArray(), Charsets.UTF_8)
     }
 
     private fun endpoint(config: ProviderConfig, path: String): String = normalizeBaseUrl(config.baseUrl) + path
