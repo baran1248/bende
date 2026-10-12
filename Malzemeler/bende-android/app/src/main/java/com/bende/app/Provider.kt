@@ -167,6 +167,7 @@ object ProviderApi {
 
     private fun openAiBody(config: ProviderConfig, history: List<Pair<Message, PreparedAttachment?>>, projectName: String?, toolsAvailable: Boolean, instructions: String?): JSONObject = JSONObject()
         .put("model", config.model)
+        .put("max_tokens", 256)
         .put("messages", JSONArray().apply {
             put(JSONObject().put("role", "system").put("content", systemPrompt(projectName, instructions)))
             history.forEach { (message, attachment) ->
@@ -258,7 +259,12 @@ object ProviderApi {
         return String(output.toByteArray(), Charsets.UTF_8)
     }
 
-    private fun endpoint(config: ProviderConfig, path: String): String = normalizeBaseUrl(config.baseUrl) + path
+    private fun endpoint(config: ProviderConfig, path: String): String {
+        val base = normalizeBaseUrl(config.baseUrl)
+        // Gemini's OpenAI-compatible base already includes its API version and compatibility route.
+        val suffix = if (base.endsWith("/v1beta/openai", ignoreCase = true)) path.removePrefix("/v1") else path
+        return base + suffix
+    }
 }
 
 private fun normalizeBaseUrl(raw: String): String {
