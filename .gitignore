@@ -1,0 +1,6 @@
+# Android / Gradle generated data
+**/.gradle/
+**/build/
+**/local.properties
+*.iml
+.idea/
