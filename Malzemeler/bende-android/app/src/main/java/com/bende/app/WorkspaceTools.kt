@@ -29,6 +29,7 @@ object ProjectWorkspace {
 object AgentTools {
     private val definitions = listOf(
         Triple("read_file", "Read a UTF-8 text file in the selected project. Never use this for secrets or binary files.", "path"),
+        Triple("list_files", "List files and folders in a relative directory of the selected project. Use '.' or omit path for the root.", "path"),
         Triple("search_files", "Search project text files for a literal query. Optionally limit the search to a relative folder.", "query"),
         Triple("write_file", "Create or replace a UTF-8 text file in the selected project. Requires user approval.", "content"),
         Triple("edit_file", "Replace one exact text block in an existing UTF-8 project file. Requires user approval.", "new_text"),
@@ -40,11 +41,13 @@ object AgentTools {
             val properties = JSONObject()
             when (name) {
                 "read_file", "delete_file" -> properties.put("path", JSONObject().put("type", "string").put("description", "Relative path from project root"))
+                "list_files" -> properties.put("path", JSONObject().put("type", "string").put("description", "Optional relative directory; omit for project root"))
                 "search_files" -> { properties.put("query", JSONObject().put("type", "string")); properties.put("path", JSONObject().put("type", "string").put("description", "Optional relative directory")) }
                 "write_file" -> { properties.put("path", JSONObject().put("type", "string")); properties.put("content", JSONObject().put("type", "string")) }
                 "edit_file" -> { properties.put("path", JSONObject().put("type", "string")); properties.put("old_text", JSONObject().put("type", "string")); properties.put("new_text", JSONObject().put("type", "string")) }
             }
             val required = when (name) {
+                "list_files" -> JSONArray()
                 "search_files" -> JSONArray().put("query")
                 "write_file" -> JSONArray().put("path").put("content")
                 "edit_file" -> JSONArray().put("path").put("old_text").put("new_text")
@@ -62,6 +65,7 @@ object AgentTools {
             val required = JSONArray()
             when (name) {
                 "read_file", "delete_file" -> { props.put("path", JSONObject().put("type", "string")); required.put("path") }
+                "list_files" -> props.put("path", JSONObject().put("type", "string"))
                 "search_files" -> { props.put("query", JSONObject().put("type", "string")); props.put("path", JSONObject().put("type", "string")); required.put("query") }
                 "write_file" -> { props.put("path", JSONObject().put("type", "string")); props.put("content", JSONObject().put("type", "string")); required.put("path").put("content") }
                 "edit_file" -> { props.put("path", JSONObject().put("type", "string")); props.put("old_text", JSONObject().put("type", "string")); props.put("new_text", JSONObject().put("type", "string")); required.put("path").put("old_text").put("new_text") }
@@ -94,6 +98,7 @@ object AgentTools {
         if (!root.isDirectory) throw IllegalStateException("Seçilen öğe bir klasör değil.")
         when (invocation.name) {
             "read_file" -> read(context, root, invocation.arguments.getString("path"))
+            "list_files" -> list(context, root, invocation.arguments.optString("path").takeIf { it.isNotBlank() })
             "search_files" -> search(context, root, invocation.arguments.getString("query"), invocation.arguments.optString("path").takeIf { it.isNotBlank() })
             "write_file" -> write(context, root, invocation.arguments.getString("path"), invocation.arguments.getString("content"))
             "edit_file" -> edit(context, root, invocation.arguments.getString("path"), invocation.arguments.getString("old_text"), invocation.arguments.getString("new_text"))
@@ -110,6 +115,20 @@ object AgentTools {
         val bytes = context.contentResolver.openInputStream(file.uri)?.use { readBounded(it, 256 * 1024) } ?: throw IllegalStateException("Dosya açılamadı.")
         if (bytes.size > 256 * 1024) throw IllegalArgumentException("Dosya 256 KB sınırını aşıyor.")
         return String(bytes, Charsets.UTF_8).take(16_000)
+    }
+
+    private fun list(context: Context, root: DocumentFile, subpath: String?): String {
+        val dir = if (subpath.isNullOrBlank() || subpath == ".") root
+            else resolve(context, root, subpath, createParents = false) ?: throw IllegalArgumentException("Klasör bulunamadı: $subpath")
+        if (!dir.isDirectory) throw IllegalArgumentException("Listeleme yolu klasör değil.")
+        val entries = dir.listFiles().filter { it.name != null && !it.name!!.startsWith(".") }.sortedWith(compareBy({ !it.isDirectory }, { it.name!!.lowercase() }))
+        if (entries.isEmpty()) return "Klasör boş: ${subpath ?: "."}"
+        val lines = entries.take(300).map { child ->
+            if (child.isDirectory) "${child.name}/"
+            else "${child.name} (${child.length() / 1024} KB)"
+        }
+        val suffix = if (entries.size > 300) "\n… ve ${entries.size - 300} öğe daha" else ""
+        return lines.joinToString("\n").take(16_000) + suffix
     }
 
     private fun search(context: Context, root: DocumentFile, query: String, subpath: String?): String {

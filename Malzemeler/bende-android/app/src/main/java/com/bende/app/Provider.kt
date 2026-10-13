@@ -99,7 +99,7 @@ object ProviderApi {
         }.distinct().sorted()
     }
 
-    suspend fun complete(context: Context, config: ProviderConfig, history: List<Message>): ProviderReply = withContext(Dispatchers.IO) {
+    suspend fun complete(context: Context, config: ProviderConfig, history: List<Message>, onDelta: (String) -> Unit = {}): ProviderReply = withContext(Dispatchers.IO) {
         require(config.apiKey.isNotBlank()) { "Ayarlar bölümünden sağlayıcı API anahtarı ekleyin." }
         require(config.model.isNotBlank()) { "Ayarlar bölümünden bir model seçin." }
         val url = if (config.kind == ProviderKind.ANTHROPIC) endpoint(config, "/v1/messages") else endpoint(config, "/v1/chat/completions")
@@ -111,9 +111,71 @@ object ProviderApi {
         val projectInstructions = AgentTools.projectInstructions(context)
         val body = if (config.kind == ProviderKind.ANTHROPIC) anthropicBody(config, prepared, ProjectWorkspace.name(context), toolsAvailable, projectInstructions)
             else openAiBody(config, prepared, ProjectWorkspace.name(context), toolsAvailable, projectInstructions)
-        val response = request(config, url, "POST", body)
-        val json = JSONObject(response)
-        if (config.kind == ProviderKind.ANTHROPIC) {
+        val streamText = StringBuilder()
+        val streamBlocks = LinkedHashMap<Int, StreamBlock>()
+        val legacy = requestStream(config, url, "POST", body) { payload ->
+            if (config.kind == ProviderKind.ANTHROPIC) {
+                when (payload.optString("type")) {
+                    "content_block_start" -> {
+                        val block = payload.optJSONObject("content_block") ?: JSONObject()
+                        val slot = streamBlocks.getOrPut(payload.optInt("index")) { StreamBlock() }
+                        slot.toolId = block.optString("id").takeIf { it.isNotBlank() && it != "null" }
+                        slot.toolName = block.optString("name").takeIf { it.isNotBlank() && it != "null" }
+                    }
+                    "content_block_delta" -> {
+                        val slot = streamBlocks.getOrPut(payload.optInt("index")) { StreamBlock() }
+                        val delta = payload.optJSONObject("delta") ?: JSONObject()
+                        when (delta.optString("type")) {
+                            "text_delta" -> {
+                                val text = delta.optString("text").takeIf { it != "null" }.orEmpty()
+                                if (text.isNotEmpty()) {
+                                    streamText.append(text)
+                                    slot.text.append(text)
+                                    onDelta(streamText.toString())
+                                }
+                            }
+                            "input_json_delta" -> slot.args.append(delta.optString("partial_json").takeIf { it != "null" }.orEmpty())
+                        }
+                    }
+                }
+            } else {
+                val delta = payload.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta") ?: JSONObject()
+                delta.optString("content").takeIf { it.isNotBlank() && it != "null" }?.let {
+                    streamText.append(it)
+                    onDelta(streamText.toString())
+                }
+                delta.optJSONArray("tool_calls")?.let { array ->
+                    for (i in 0 until array.length()) {
+                        val call = array.optJSONObject(i) ?: continue
+                        val slot = streamBlocks.getOrPut(call.optInt("index")) { StreamBlock() }
+                        call.optString("id").takeIf { it.isNotBlank() && it != "null" }?.let { slot.toolId = it }
+                        val function = call.optJSONObject("function")
+                        function?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }?.let { slot.toolName = it }
+                        function?.optString("arguments")?.takeIf { it.isNotBlank() && it != "null" }?.let { slot.args.append(it) }
+                    }
+                }
+            }
+        }
+        if (legacy.isNotBlank() && streamText.isEmpty() && streamBlocks.isEmpty()) return@withContext parseWholeResponse(JSONObject(legacy))
+        val calls = streamBlocks.entries.sortedBy { it.key }.mapNotNull { (_, slot) ->
+            val name = slot.toolName?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val args = runCatching { JSONObject(slot.args.toString().ifBlank { "{}" }) }.getOrElse { JSONObject() }
+            ToolInvocation(slot.toolId ?: "call_${name}_${System.nanoTime()}", name, args)
+        }
+        val text = streamText.toString().trim()
+        if (text.isEmpty() && calls.isEmpty()) throw IllegalStateException("Model yanıtı boş veya desteklenmeyen biçimde.")
+        ProviderReply(text, calls)
+    }
+
+    private class StreamBlock {
+        var toolId: String? = null
+        var toolName: String? = null
+        val text = StringBuilder()
+        val args = StringBuilder()
+    }
+
+    private fun parseWholeResponse(json: JSONObject): ProviderReply {
+        if (json.has("content") && json.has("role")) {
             val content = json.optJSONArray("content") ?: JSONArray()
             val text = mutableListOf<String>()
             val calls = mutableListOf<ToolInvocation>()
@@ -124,19 +186,18 @@ object ProviderApi {
                     "tool_use" -> calls.add(ToolInvocation(part.optString("id"), part.optString("name"), part.optJSONObject("input") ?: JSONObject()))
                 }
             }
-            ProviderReply(text.joinToString("\n"), calls)
-        } else {
-            val message = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") ?: throw IllegalStateException("Model yanıtı boş veya desteklenmeyen biçimde.")
-            val text = message.optString("content").takeIf { it != "null" }.orEmpty()
-            val calls = message.optJSONArray("tool_calls")?.let { array -> (0 until array.length()).mapNotNull { i ->
-                val call = array.optJSONObject(i) ?: return@mapNotNull null
-                val function = call.optJSONObject("function") ?: return@mapNotNull null
-                val args = runCatching { JSONObject(function.optString("arguments", "{}")) }.getOrElse { JSONObject() }
-                ToolInvocation(call.optString("id"), function.optString("name"), args)
-            } }.orEmpty()
-            if (text.isBlank() && calls.isEmpty()) throw IllegalStateException("Model yanıtı boş veya desteklenmeyen biçimde.")
-            ProviderReply(text, calls)
+            return ProviderReply(text.joinToString("\n"), calls)
         }
+        val message = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("message") ?: throw IllegalStateException("Model yanıtı boş veya desteklenmeyen biçimde.")
+        val text = message.optString("content").takeIf { it != "null" }.orEmpty()
+        val calls = message.optJSONArray("tool_calls")?.let { array -> (0 until array.length()).mapNotNull { i ->
+            val call = array.optJSONObject(i) ?: return@mapNotNull null
+            val function = call.optJSONObject("function") ?: return@mapNotNull null
+            val args = runCatching { JSONObject(function.optString("arguments", "{}")) }.getOrElse { JSONObject() }
+            ToolInvocation(call.optString("id"), function.optString("name"), args)
+        } }.orEmpty()
+        if (text.isBlank() && calls.isEmpty()) throw IllegalStateException("Model yanıtı boş veya desteklenmeyen biçimde.")
+        return ProviderReply(text, calls)
     }
 
     private data class PreparedAttachment(val mime: String, val text: String?, val imageData: String?)
@@ -167,7 +228,8 @@ object ProviderApi {
 
     private fun openAiBody(config: ProviderConfig, history: List<Pair<Message, PreparedAttachment?>>, projectName: String?, toolsAvailable: Boolean, instructions: String?): JSONObject = JSONObject()
         .put("model", config.model)
-        .put("max_tokens", 256)
+        .put("max_tokens", 4096)
+        .put("stream", true)
         .put("messages", JSONArray().apply {
             put(JSONObject().put("role", "system").put("content", systemPrompt(projectName, instructions)))
             history.forEach { (message, attachment) ->
@@ -187,7 +249,7 @@ object ProviderApi {
         }).apply { if (toolsAvailable) put("tools", AgentTools.openAiDefinitions()).put("tool_choice", "auto") }
 
     private fun anthropicBody(config: ProviderConfig, history: List<Pair<Message, PreparedAttachment?>>, projectName: String?, toolsAvailable: Boolean, instructions: String?): JSONObject = JSONObject()
-        .put("model", config.model).put("max_tokens", 2048).put("system", systemPrompt(projectName, instructions))
+        .put("model", config.model).put("max_tokens", 4096).put("stream", true).put("system", systemPrompt(projectName, instructions))
         .put("messages", JSONArray().apply {
             history.forEach { (message, attachment) ->
                 if (message.toolResultFor != null) {
@@ -238,6 +300,61 @@ object ProviderApi {
             }
             text
         } finally { connection.disconnect() }
+    }
+
+    /** Reads an SSE stream, calling [onEvent] per JSON event. Returns the raw body when the server ignored streaming. */
+    private fun requestStream(config: ProviderConfig, url: String, method: String, body: JSONObject?, onEvent: (JSONObject) -> Unit): String {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = 20_000
+            readTimeout = 120_000
+            instanceFollowRedirects = false
+            setRequestProperty("Accept", "text/event-stream, application/json")
+            if (config.kind == ProviderKind.ANTHROPIC) {
+                setRequestProperty("x-api-key", config.apiKey)
+                setRequestProperty("anthropic-version", "2023-06-01")
+            } else setRequestProperty("Authorization", "Bearer ${config.apiKey}")
+            if (body != null) {
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+        }
+        val legacy = StringBuilder()
+        var sawEvents = false
+        var legacyMode = false
+        try {
+            if (body != null) connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            val stream = if (code in 200..299) connection.inputStream else connection.errorStream
+            if (code !in 200..299) {
+                val text = readResponseBounded(stream)
+                val detail = runCatching { JSONObject(text).optJSONObject("error")?.optString("message") ?: JSONObject(text).optString("message") }.getOrNull()
+                throw IllegalStateException("Sağlayıcı HTTP $code${detail?.takeIf { it.isNotBlank() }?.let { ": $it" } ?: ""}")
+            }
+            stream?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                var total = 0
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    total += line.length
+                    require(total <= 2 * 1024 * 1024) { "Sağlayıcı yanıtı 2 MB sınırını aşıyor." }
+                    val trimmed = line.trim()
+                    if (legacyMode) { legacy.append(line).append('\n'); continue }
+                    if (trimmed.isEmpty()) continue
+                    if (trimmed.startsWith("data:")) {
+                        val payload = trimmed.removePrefix("data:").trim()
+                        if (payload.isEmpty() || payload == "[DONE]") continue
+                        runCatching { JSONObject(payload) }.getOrNull()?.let { json ->
+                            sawEvents = true
+                            onEvent(json)
+                        }
+                    } else if (trimmed.startsWith("{") && !sawEvents) {
+                        legacyMode = true
+                        legacy.append(line).append('\n')
+                    }
+                }
+            }
+        } finally { connection.disconnect() }
+        return if (sawEvents) "" else legacy.toString()
     }
 
     private fun readResponseBounded(stream: java.io.InputStream?): String {
