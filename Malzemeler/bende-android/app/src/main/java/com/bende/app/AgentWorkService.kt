@@ -15,21 +15,31 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /** Keeps user-started agent coroutines alive while the activity is not visible. */
 object AgentWork {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val lock = Any()
     private var activeJobs = 0
+    private var appContext: Context? = null
+    private val _activeSessionIds = MutableStateFlow<Set<Long>>(emptySet())
+    val activeSessionIds: StateFlow<Set<Long>> = _activeSessionIds
 
-    fun launch(context: Context, block: suspend () -> Unit): Job {
-        val appContext = context.applicationContext
+    fun launch(context: Context, sessionId: Long, block: suspend () -> Unit): Job {
+        val application = context.applicationContext
         synchronized(lock) {
             activeJobs += 1
+            appContext = application
+            _activeSessionIds.value = _activeSessionIds.value + sessionId
+            savePersistedSessionIds(application, persistedSessionIds(application) + sessionId)
             try {
-                appContext.startForegroundService(Intent(appContext, AgentWorkService::class.java))
+                application.startForegroundService(Intent(application, AgentWorkService::class.java))
             } catch (error: Exception) {
                 activeJobs -= 1
+                _activeSessionIds.value = _activeSessionIds.value - sessionId
+                savePersistedSessionIds(application, persistedSessionIds(application) - sessionId)
                 throw error
             }
         }
@@ -39,12 +49,33 @@ object AgentWork {
             } finally {
                 val stop = synchronized(lock) {
                     activeJobs = (activeJobs - 1).coerceAtLeast(0)
+                    _activeSessionIds.value = _activeSessionIds.value - sessionId
+                    savePersistedSessionIds(application, persistedSessionIds(application) - sessionId)
                     activeJobs == 0
                 }
-                if (stop) appContext.stopService(Intent(appContext, AgentWorkService::class.java))
+                if (stop) application.stopService(Intent(application, AgentWorkService::class.java))
             }
         }
     }
+
+    /** Returns session IDs left by a dead process, preserving jobs still running in this process. */
+    fun takeInterruptedSessionIds(context: Context): Set<Long> = synchronized(lock) {
+        val application = context.applicationContext
+        val interrupted = persistedSessionIds(application) - _activeSessionIds.value
+        savePersistedSessionIds(application, persistedSessionIds(application) - interrupted)
+        interrupted
+    }
+
+    private fun persistedSessionIds(context: Context): Set<Long> = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getStringSet(KEY_ACTIVE_SESSIONS, emptySet()).orEmpty().mapNotNull { it.toLongOrNull() }.toSet()
+
+    private fun savePersistedSessionIds(context: Context, ids: Set<Long>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putStringSet(KEY_ACTIVE_SESSIONS, ids.map(Long::toString).toSet()).apply()
+    }
+
+    private const val PREFS = "agent_work"
+    private const val KEY_ACTIVE_SESSIONS = "active_session_ids"
 }
 
 class AgentWorkService : Service() {
