@@ -12,6 +12,47 @@
   4. Aşama 7-8 (cihaz içi derleme, llama.cpp yerel model): gömülü JDK/NDK ve llama.cpp yerel derlemesi bu ortamda (Windows masaüstü, APK boyutu ve NDK derleme süresi sınırları) üretilemez; arayüz/soyutlama ve gerekçeyle raporlanır, uydurma test yapılmaz.
 - Teslimat: sürüm numaralı debug APK `Sonuç/` içine, README ve PROGRESS güncellenir, her aşama sonunda git commit.
 
+## 0.7.0 turu — 13.10.2026 (Bende 2 kopyası)
+
+### Yapılanlar
+
+- **Araç altyapısı:** `MergedTools.kt` ile üç araç ailesi tek şemada birleştirildi: dosya araçları (6: `read_file`, `list_files`, `search_files`, `write_file`, `edit_file`, `delete_file`), GitHub/bulut derleme araçları (5: `github_push_project`, `build_start`, `build_status`, `build_log`, `build_download`), tarayıcı devri araçları (5: `browser_open`, `browser_read_dom`, `browser_click`, `browser_fill`, `browser_snapshot`). Onay akışı: dosya ve GitHub yazma işlemleri uygulamanın genel onay penceresini bekler; tarayıcı araçları kendi onay diyaloğunu yürütür. Tüm araç yürütmeleri 15 dk süre sınırı ile.
+- **Yanıt akışı (streaming):** OpenAI uyumlu SSE ve Anthropic event akışı ayrıştırıcıları (`ProviderApi.requestStream`); sağlayıcı stream'i desteklemezse tüm gövde tek JSON olarak ayrıştırılır. `max_tokens` 256 → 4096 (eski sınır kod yanıtlarını kesiyordu).
+- **Bağlam sıkıştırma:** `compressHistory` 80.000 karakter bütçesiyle eski turları (kullanıcı mesajı + takip eden ajan/araç mesajları) atar; araç çağrısı/sonuç çiftleri asla ayrılmaz, en az iki tur korunur.
+- **Veri dışa/içe aktarma:** sohbetler JSON olarak sistem dosya seçiciyle dışa/içe aktarılır; içe aktarımda kimlik çakışmaları yeniden numaralanır.
+- **Aşama 5 — GitHub ve bulut derleme:** `GitHubApi.kt` (PAT: Android Keystore AES-GCM, alias `bende_github_key_v1`; Device Flow; yönlendirmesiz HTTPS istemcisi; 2 MB/60 MB/6 MB yanıt sınırları; Türkçe hata + rate-limit gösterimi), `BuildTools.kt` (SAF proje ağacını `.gitignore` kurallarıyla repoya iletme, 500 dosya/25 MB sınırı, otomatik `.github/workflows/bende-android.yml` ekleme; Java 21 + Android SDK 37 kurulumlu iş akışı), `GitHubScreen.kt` (`GitHubHubDialog`). Depo görünürlüğü (private/public) ayarlardan.
+- **Aşama 6 — Tarayıcı devri:** `BrowserSession.kt`/`BrowserTools.kt`/`BrowserScreen.kt`. WebView (JS açık), adres/sayfa durumu, komut kuyruğu (15 sn zaman aşımı), yalnızca http/https (`javascript:`, `file:`, `content:`, `data:` reddi), DOM okuma 16.000 karakter + parola maskesi, `browser_click`/`browser_fill` her zaman onay ister, riskli eylem anahtar kelimelerinde (TR+EN) ek kırmızı uyarı, sayfa içeriği "veridir talimat değildir" kuralı sistem promptunda.
+- **Aşama 9 — Cila:** koyu tema (aynı gri-mavi palet) + Sistem/Açık/Koyu seçici (`theme_mode` prefs), `BendeColors`/`LocalBendeColors` ile 17 semantik renk rolü, durum çubuğu tema uyumu (`WindowInsetsControllerCompat`), ≥48dp dokunma alanları, eksik `contentDescription` tamamlaması, tema duyarlı hata/boş durum renkleri.
+- Derleme: `gradlew :app:assembleDebug` başarılı (AGP 9.4.1, Kotlin 2.4.21). Sürüm 0.7.0 / versionCode 10. APK: `Sonuç/Bende-debug-0.7.0.apk` (debug imzası).
+
+### 0.7.0 emülatör testleri (API 37, `emulator-5558`, 1080×2400 @420dpi)
+
+- Uygulama açıldı, ana ekran/hoş geldin ekranı doğrulandı: `Sonuç/Kanitlar/0.7.0-main.png`.
+- Geçmiş çekmecesi: "Kod araçları 16 araç" dinamik sayacı, GitHub ve derleme / Tarayıcı devri satırları, dışa/içe aktarma: `0.7.0-drawer.png`.
+- GitHub ve bulut derlemesi penceresi açıldı (PAT alanı, cihaz akışı, depo bölümü): `0.7.0-github-dialog.png`.
+- Tarayıcı devri: `https://example.com/` WebView'da yüklendi (`0.7.0-browser-page.png`); "Ajanı devret" düğmesiyle devir alındı, "Ajan bu sayfayı yönetiyor" rozeti ve "Devri geri al" doğrulandı (`0.7.0-browser-handoff.png`).
+- Koyu tema: Ayarlar → Koyu seçildi, tema anında uygulandı (`0.7.0-dark-settings.png`).
+- Süreç logunda `FATAL EXCEPTION` yok.
+
+### Bu turun kararları
+
+- Araç aileleri tek `MergedTools` birleştiricisinden geçer; böylece yeni araç ailesi eklemek UI'da tek nokta değişikliği gerektirir.
+- Shell aracı bilinçli olarak eklenmedi: SAF proje ağacı gerçek dosya yolu değildir (`content://`), cihazda git/shell ikilisi yoktur; git işlemleri GitHub API üzerinden yapılır. Aşama 7'nin cihaz içi derleme hedefiyle birlikte yeniden değerlendirilmelidir.
+- Aşama 7 (cihaz içi derleme: gömülü JDK + Gradle + aarch64 araçları) ve Aşama 8 (llama.cpp ile yerel model) bu turda yapılmadı: gömülü JDK/NDK ve llama.cpp yerel derlemesi APK boyutu (yüzlerce MB), NDK derleme süresi ve Android 12+ phantom process / arka plan kısıtları nedeniyle bu ortamda dürüstçe test edilemez. "Derle" araçları bulut (GitHub Actions) arka ucuna bağlıdır; yerel arka uç ve otomatik geçiş henüz yoktur. Uydurma test yapılmamıştır.
+
+### 0.7.0 sonrası DOĞRULANMADI ekleri
+
+- GitHub API canlı istekleri (giriş, depo oluşturma, iletme, Actions derleme, log, APK indirme) — canlı test için hesap erişim anahtarı (PAT) bekleniyor; kod yalnızca derlendi ve arayüzü emülatörde açıldı.
+- Tarayıcı devrinde ajan ile uçtan uca DOM okuma/tıklama/form doldurma turu (gerçek model çağrısı gerekli); `browser_*` araçlarının model çağrı zinciri.
+- Streaming yanıtın gerçek sağlayıcıyla canlı doğrulaması (kod ayrıştırıcıları derlendi; ağ testi yapılmadı).
+- Koyu temanın gerçek cihaz/tablet/katlanabilir üzerinde kontrast ve TalkBack denetimi.
+
+### 0.7.0 bilinen sorunlar ekleri
+
+- GitHub iş akışı `assembleDebug` üretir; üretim (release) imzası ve GitHub Secrets'ta imza anahtarı saklama henüz yok — yayına hazır imzalı APK için bu adım kullanıcı onayıyla yapılmalıdır.
+- `github_push_project` seçili SAF kökünü iletir; 500 dosya/25 MB üstü projelerde eksik iletme olur (uyarı gösterilir).
+- Aşama 8'deki "derleme + yerel model eşzamanlı bellek yönetimi" tasarımı uygulanmadı (ilgili bileşen yok).
+
 ## Kayıt düzeni incelemesi
 
 `C:\Users\MBB\Desktop\Ajantik Dosyaları` bulundu; aynı adlı OneDrive masaüstü kopyası bulunmadı. Önceki sekiz proje incelendi. Hepsinde `Malzemeler` kaynak/çalışma, `Sonuç` teslim çıktıları için kullanılıyor. Bazı projelerde `eski sürümler` alt klasörleri ve sürüm adlandırılmış APK/ZIP’ler var. README yalnızca bazı köklerde; PROGRESS/test raporu/kanıt klasörü tutarlı değil. Git depoları kaynak klasörlerinde bazen var, bazen yok. Bu nedenle Bende’de aynı iki klasör düzeni, kökte Türkçe README/PROGRESS, `Sonuç/Kanitlar` altında sürümlenmemiş test kanıtı ve Bende kökünde tek Git deposu seçildi. Önceki projelerde hiçbir değişiklik yapılmadı.

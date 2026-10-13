@@ -11,6 +11,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,12 +28,14 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
@@ -45,7 +48,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -60,17 +65,103 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
 import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 import org.json.JSONArray
 import org.json.JSONObject
 
-private val Blue = Color(0xFF2563EB)
-private val Ink = Color(0xFF182230)
-private val Muted = Color(0xFF667085)
-private val Line = Color(0xFFE5E7EB)
-private val SurfaceSoft = Color(0xFFF7F8FA)
 private const val MAX_CONCURRENT_AGENTS = 4
+
+// Tema tercihi: "bende" prefs dosyasında "theme_mode" anahtarıyla saklanır.
+private const val PREFS_NAME = "bende"
+private const val PREF_THEME_MODE = "theme_mode"
+private const val THEME_SYSTEM = "system"
+private const val THEME_LIGHT = "light"
+private const val THEME_DARK = "dark"
+
+/**
+ * Tema duyarlı renk paleti. Açık ve koyu tema aynı gri-mavi dilde; tek vurgu rengi mavi (#2563EB).
+ * accent: dolu yüzeyler (buton, seçili segment), accentText: küçük metin/ikonlar için kontrast dostu mavi.
+ */
+@Immutable
+private data class BendeColors(
+    val accent: Color,
+    val accentText: Color,
+    val onAccent: Color,
+    val background: Color,
+    val surface: Color,
+    val panel: Color,
+    val surfaceSoft: Color,
+    val userBubble: Color,
+    val selection: Color,
+    val ink: Color,
+    val muted: Color,
+    val placeholder: Color,
+    val line: Color,
+    val disabledFill: Color,
+    val codeBackground: Color,
+    val error: Color,
+    val errorSurface: Color
+)
+
+private val LightBendeColors = BendeColors(
+    accent = Color(0xFF2563EB),
+    accentText = Color(0xFF2563EB),
+    onAccent = Color.White,
+    background = Color(0xFFFFFFFF),
+    surface = Color(0xFFFFFFFF),
+    panel = Color(0xFFFAFAFB),
+    surfaceSoft = Color(0xFFF7F8FA),
+    userBubble = Color(0xFFF1F3F6),
+    selection = Color(0xFFEFF4FF),
+    ink = Color(0xFF182230),
+    muted = Color(0xFF667085),
+    placeholder = Color(0xFF98A2B3),
+    line = Color(0xFFE5E7EB),
+    disabledFill = Color(0xFFE5E7EB),
+    codeBackground = Color(0xFFF7F8FA),
+    error = Color(0xFFB42318),
+    errorSurface = Color(0xFFFFF1F1)
+)
+
+private val DarkBendeColors = BendeColors(
+    accent = Color(0xFF2563EB),
+    accentText = Color(0xFF8AB4FF),
+    onAccent = Color.White,
+    background = Color(0xFF121417),
+    surface = Color(0xFF1B1F27),
+    panel = Color(0xFF16191F),
+    surfaceSoft = Color(0xFF232833),
+    userBubble = Color(0xFF232833),
+    selection = Color(0xFF1E2C4A),
+    ink = Color(0xFFE7EAF0),
+    muted = Color(0xFF9AA4B2),
+    placeholder = Color(0xFF808A9A),
+    line = Color(0xFF2B323F),
+    disabledFill = Color(0xFF2B323F),
+    codeBackground = Color(0xFF232833),
+    error = Color(0xFFFF9A94),
+    errorSurface = Color(0xFF332222)
+)
+
+private val LocalBendeColors = staticCompositionLocalOf { LightBendeColors }
+
+private fun loadThemeMode(context: Context): String =
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(PREF_THEME_MODE, THEME_SYSTEM) ?: THEME_SYSTEM
+
+private fun saveThemeMode(context: Context, mode: String) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(PREF_THEME_MODE, mode).apply()
+}
+
+private fun findActivity(context: Context): android.app.Activity? {
+    var current: Context? = context
+    while (current is android.content.ContextWrapper) {
+        if (current is android.app.Activity) return current
+        current = current.baseContext
+    }
+    return null
+}
 
 data class Attachment(val name: String, val uri: String?)
 data class Message(
@@ -88,21 +179,63 @@ data class ToolApproval(val invocation: ToolInvocation, val decision: Completabl
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.WHITE
-        window.navigationBarColor = android.graphics.Color.WHITE
-        window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or android.view.View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        setContent { BendeTheme { BendeApp() } }
+        setContent { BendeApp() }
     }
 }
 
+@Suppress("DEPRECATION")
 @Composable
-private fun BendeTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = lightColorScheme(primary = Blue, onPrimary = Color.White, secondary = Blue, onSecondary = Color.White, tertiary = Blue, onTertiary = Color.White, background = Color.White, surface = Color.White, surfaceContainer = Color.White, surfaceContainerHigh = Color.White, surfaceContainerLow = SurfaceSoft, surfaceVariant = SurfaceSoft, onSurface = Ink, onSurfaceVariant = Muted, outline = Line), content = content)
+private fun BendeTheme(themeMode: String, content: @Composable () -> Unit) {
+    val dark = when (themeMode) {
+        THEME_DARK -> true
+        THEME_LIGHT -> false
+        else -> isSystemInDarkTheme()
+    }
+    val colors = if (dark) DarkBendeColors else LightBendeColors
+    val colorScheme = if (dark) darkColorScheme(
+        primary = colors.accent, onPrimary = colors.onAccent, secondary = colors.accent, onSecondary = colors.onAccent, tertiary = colors.accent, onTertiary = colors.onAccent,
+        background = colors.background, surface = colors.surface, surfaceContainer = colors.surface, surfaceContainerHigh = colors.surfaceSoft, surfaceContainerLow = colors.panel, surfaceVariant = colors.surfaceSoft,
+        onSurface = colors.ink, onSurfaceVariant = colors.muted, outline = colors.line, error = colors.error, onError = colors.background, errorContainer = colors.errorSurface, onErrorContainer = colors.error
+    ) else lightColorScheme(
+        primary = colors.accent, onPrimary = colors.onAccent, secondary = colors.accent, onSecondary = colors.onAccent, tertiary = colors.accent, onTertiary = colors.onAccent,
+        background = colors.background, surface = colors.surface, surfaceContainer = colors.surface, surfaceContainerHigh = colors.surfaceSoft, surfaceContainerLow = colors.panel, surfaceVariant = colors.surfaceSoft,
+        onSurface = colors.ink, onSurfaceVariant = colors.muted, outline = colors.line, error = colors.error, onError = colors.onAccent, errorContainer = colors.errorSurface, onErrorContainer = colors.error
+    )
+    val view = LocalView.current
+    if (!view.isInEditMode) {
+        SideEffect {
+            val window = findActivity(view.context)?.window ?: return@SideEffect
+            window.statusBarColor = colors.background.toArgb()
+            window.navigationBarColor = colors.background.toArgb()
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                isAppearanceLightStatusBars = !dark
+                isAppearanceLightNavigationBars = !dark
+            }
+        }
+    }
+    MaterialTheme(colorScheme = colorScheme) {
+        CompositionLocalProvider(LocalBendeColors provides colors, content = content)
+    }
 }
 
 @Composable
 private fun BendeApp() {
     val context = LocalContext.current
+    var themeMode by remember { mutableStateOf(loadThemeMode(context)) }
+    BendeTheme(themeMode) {
+        BendeContent(themeMode) { mode ->
+            if (mode != themeMode) {
+                themeMode = mode
+                saveThemeMode(context, mode)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BendeContent(themeMode: String, onThemeModeChange: (String) -> Unit) {
+    val context = LocalContext.current
+    val colors = LocalBendeColors.current
     val windowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass
     val wide = windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_EXPANDED_LOWER_BOUND)
     val persistentHistory = windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_MEDIUM_LOWER_BOUND)
@@ -112,6 +245,8 @@ private fun BendeApp() {
     var attachment by remember { mutableStateOf<Attachment?>(null) }
     var showHistory by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showGitHub by remember { mutableStateOf(false) }
+    var showBrowser by remember { mutableStateOf(false) }
     var providerConfig by remember { mutableStateOf(ProviderStore.load(context)) }
     var projectName by remember { mutableStateOf(ProjectWorkspace.name(context)) }
     var sendingSessionIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
@@ -244,15 +379,15 @@ private fun BendeApp() {
                     history = history + toolMessage
                     sessions.firstOrNull { it.id == targetId }?.let { latest -> persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = history) else session }) }
                     for (call in answer.toolCalls) {
-                        val result = if (AgentTools.needsApproval(call.name)) {
-                            approvalMutex.withLock {
-                                val request = ToolApproval(call, CompletableDeferred())
-                                pendingApproval = request
-                                val approved = try { request.decision.await() } finally { pendingApproval = null }
-                                if (approved) runCatching { AgentTools.execute(context, call) }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
-                                else "Kullanıcı işlemi reddetti; dosya değiştirilmedi."
+                        val result = runCatching {
+                            MergedTools.execute(context, call) { invocation ->
+                                approvalMutex.withLock {
+                                    val request = ToolApproval(invocation, CompletableDeferred())
+                                    pendingApproval = request
+                                    try { request.decision.await() } finally { pendingApproval = null }
+                                }
                             }
-                        } else runCatching { AgentTools.execute(context, call) }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
+                        }.getOrElse { "Araç hatası: ${it.message ?: "İşlem tamamlanamadı."}" }
                         val toolResult = Message(System.currentTimeMillis(), result, false, toolResultFor = call.id, toolName = call.name)
                         history = history + toolResult
                         sessions.firstOrNull { it.id == targetId }?.let { latest -> persist(sessions.map { session -> if (session.id == targetId) latest.copy(messages = history) else session }) }
@@ -265,48 +400,52 @@ private fun BendeApp() {
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Color.White)) {
+    Box(Modifier.fillMaxSize().background(colors.background)) {
       Row(Modifier.fillMaxSize()) {
-        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, activeSessionIds = sendingSessionIds, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendErrors = sendErrors - it.id }, onNew = ::newChat, onSettings = { showSettings = true }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, onExport = { exportLauncher.launch("bende-sohbetler.json") }, onImport = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
+        if (persistentHistory) HistoryPanel(sessions, selectedId, projectName, activeSessionIds = sendingSessionIds, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendErrors = sendErrors - it.id }, onNew = ::newChat, onSettings = { showSettings = true }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, onExport = { exportLauncher.launch("bende-sohbetler.json") }, onImport = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }, onGitHub = { showGitHub = true; showHistory = false }, onBrowser = { showBrowser = true; showHistory = false }, modifier = Modifier.width(if (wide) 300.dp else 250.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
             TopBar(current.title, !persistentHistory, providerConfig.model.takeIf { providerConfig.apiKey.isNotBlank() && it.isNotBlank() }, onMenu = { showHistory = !showHistory }, onSettings = { showSettings = true })
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 if (current.messages.isEmpty()) Welcome(onPrompt = { input = it })
                 else MessagesList(current.messages, sending = current.id in sendingSessionIds, streamingText = streamPreview[current.id], modifier = Modifier.fillMaxSize().padding(horizontal = if (wide) 72.dp else 20.dp))
                 sendErrors[current.id]?.let { error ->
-                    Text("Bağlantı hatası: $error", Modifier.align(Alignment.TopCenter).padding(12.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFFFF1F1)).padding(12.dp), color = Color(0xFFB42318), fontSize = 12.sp)
+                    Text("Bağlantı hatası: $error", Modifier.align(Alignment.TopCenter).padding(12.dp).clip(RoundedCornerShape(12.dp)).background(colors.errorSurface).padding(12.dp), color = colors.error, fontSize = 12.sp)
                 }
             }
             Composer(input, { input = it }, attachment, { attachment = null }, onAttach = { filePicker.launch(arrayOf("*/*")) }, onSend = ::send, sending = current.id in sendingSessionIds, modifier = Modifier.fillMaxWidth().padding(horizontal = if (wide) 72.dp else 16.dp, vertical = 12.dp))
-            Text("Bende hata yapabilir. Önemli bilgileri kontrol edin.", Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp), color = Muted, fontSize = 11.sp)
+            Text("Bende hata yapabilir. Önemli bilgileri kontrol edin.", Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp), color = colors.muted, fontSize = 11.sp)
         }
       }
       if (!persistentHistory && showHistory) {
           Box(Modifier.fillMaxSize()) {
               Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.32f)).clickable { showHistory = false })
-              HistoryPanel(sessions, selectedId, projectName, activeSessionIds = sendingSessionIds, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendErrors = sendErrors - it.id }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, onExport = { exportLauncher.launch("bende-sohbetler.json") }, onImport = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
+              HistoryPanel(sessions, selectedId, projectName, activeSessionIds = sendingSessionIds, onSelectProject = { showHistory = false; projectPicker.launch(null) }, onSelect = { selectedId = it.id; showHistory = false; sendErrors = sendErrors - it.id }, onNew = { newChat(); showHistory = false }, onSettings = { showSettings = true; showHistory = false }, onRename = { editingSession = it; editedTitle = it.title }, onDelete = { deletingSession = it }, onInstructions = ::inspectProjectInstructions, onExport = { exportLauncher.launch("bende-sohbetler.json") }, onImport = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }, onGitHub = { showGitHub = true; showHistory = false }, onBrowser = { showBrowser = true; showHistory = false }, modifier = Modifier.width(300.dp).fillMaxHeight().align(Alignment.CenterStart))
           }
       }
     }
     if (showSettings) ProviderSettingsDialog(
         initial = providerConfig,
+        themeMode = themeMode,
+        onThemeModeChange = onThemeModeChange,
         onDismiss = { showSettings = false },
         onSave = { config -> ProviderStore.save(context, config); providerConfig = ProviderStore.load(context); showSettings = false },
         onClearKey = { ProviderStore.clearKey(context); providerConfig = ProviderStore.load(context) }
     )
+    if (showGitHub) GitHubHubDialog(onDismiss = { showGitHub = false })
+    if (showBrowser) BrowserHandoffScreen(onClose = { showBrowser = false })
     if (showInstructions) {
         AlertDialog(
             onDismissRequest = { showInstructions = false },
             title = { Text("Proje talimatları · AGENTS.md") },
             text = {
                 Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
-                    Text("Kök dizindeki dosya her model isteğinde seçtiğin sağlayıcıya gönderilir.", color = Muted, fontSize = 12.sp)
+                    Text("Kök dizindeki dosya her model isteğinde seçtiğin sağlayıcıya gönderilir.", color = colors.muted, fontSize = 12.sp)
                     Spacer(Modifier.height(10.dp))
                     when {
                         instructionsLoading -> CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
-                        instructionsError != null -> Text("Okuma hatası: $instructionsError", color = Color(0xFFB42318))
-                        instructionsText == null -> Text("Seçili proje kökünde AGENTS.md bulunamadı.", color = Muted)
-                        else -> Text(instructionsText.orEmpty(), color = Ink, fontSize = 12.sp, lineHeight = 18.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        instructionsError != null -> Text("Okuma hatası: $instructionsError", color = colors.error)
+                        instructionsText == null -> Text("Seçili proje kökünde AGENTS.md bulunamadı.", color = colors.muted)
+                        else -> Text(instructionsText.orEmpty(), color = colors.ink, fontSize = 12.sp, lineHeight = 18.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                     }
                 }
             },
@@ -327,7 +466,7 @@ private fun BendeApp() {
             onDismissRequest = { deletingSession = null },
             title = { Text("Sohbet silinsin mi?") },
             text = { Text("‘${session.title}’ ve içindeki mesajlar bu cihazdan silinecek. Bu işlem geri alınamaz.") },
-            confirmButton = { TextButton(onClick = { deleteSession(session) }) { Text("Sil", color = Color(0xFFB42318)) } },
+            confirmButton = { TextButton(onClick = { deleteSession(session) }) { Text("Sil", color = colors.error) } },
             dismissButton = { TextButton(onClick = { deletingSession = null }) { Text("Vazgeç") } }
         )
     }
@@ -335,19 +474,27 @@ private fun BendeApp() {
         val call = request.invocation
         val args = call.arguments
         val path = args.optString("path")
+        val isBuildTool = MergedTools.isBuildTool(call.name)
         val preview = when (call.name) {
             "write_file" -> args.optString("content")
             "edit_file" -> "Bul: ${args.optString("old_text")}\n\nYeni: ${args.optString("new_text")}"
+            "github_push_project" -> "Proje dosyaları GitHub deposuna iletilecek.\nCommit mesajı: ${args.optString("message").ifBlank { "(varsayılan)" }}"
+            "build_start" -> "GitHub Actions ile APK derlemesi başlatılacak."
+            "build_download" -> "Son başarılı derleme APK'sı indirilip cihaza kaydedilecek."
             else -> path
         }
         AlertDialog(
             onDismissRequest = { request.decision.complete(false) },
-            title = { Text(if (call.name == "delete_file") "Dosya silme izni" else "Dosya değişikliği izni") },
+            title = { Text(when {
+                call.name == "delete_file" -> "Dosya silme izni"
+                isBuildTool -> "Bulut işlemi izni"
+                else -> "Dosya değişikliği izni"
+            }) },
             text = { Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                Text("Proje: ${projectName ?: "Seçilmedi"}\nAraç: ${call.name}\nYol: $path", color = Ink)
-                if (call.name == "delete_file") Text("Bu işlem dosyayı kalıcı olarak siler.", Modifier.padding(top = 12.dp), color = Color(0xFFB42318))
-                else Text(preview.take(3000), Modifier.padding(top = 12.dp), color = Muted, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                Text("Ajan bu işlemi yapabilmek için onayınızı bekliyor.", Modifier.padding(top = 12.dp), color = Muted, fontSize = 12.sp)
+                Text("Proje: ${projectName ?: "Seçilmedi"}\nAraç: ${call.name}${if (path.isNotBlank()) "\nYol: $path" else ""}", color = colors.ink)
+                if (call.name == "delete_file") Text("Bu işlem dosyayı kalıcı olarak siler.", Modifier.padding(top = 12.dp), color = colors.error)
+                else Text(preview.take(3000), Modifier.padding(top = 12.dp), color = colors.muted, fontSize = 12.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                Text("Ajan bu işlemi yapabilmek için onayınızı bekliyor.", Modifier.padding(top = 12.dp), color = colors.muted, fontSize = 12.sp)
             } },
             confirmButton = { TextButton(onClick = { request.decision.complete(true) }) { Text("İzin ver") } },
             dismissButton = { TextButton(onClick = { request.decision.complete(false) }) { Text("Reddet") } }
@@ -358,10 +505,13 @@ private fun BendeApp() {
 @Composable
 private fun ProviderSettingsDialog(
     initial: ProviderConfig,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSave: (ProviderConfig) -> Unit,
     onClearKey: () -> Unit
 ) {
+    val colors = LocalBendeColors.current
     var kind by remember { mutableStateOf(initial.kind) }
     var baseUrl by remember { mutableStateOf(initial.baseUrl) }
     var apiKey by remember { mutableStateOf(initial.apiKey) }
@@ -375,11 +525,14 @@ private fun ProviderSettingsDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
-        containerColor = Color.White,
-        title = { Text("Model sağlayıcısı") },
+        containerColor = colors.surface,
+        title = { Text("Ayarlar") },
         text = {
-            Column(Modifier.fillMaxWidth().heightIn(max = 570.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("OpenAI uyumlu bir API veya Anthropic kullan. API anahtarı bu cihazda Android Keystore ile şifrelenerek saklanır.", color = Muted, fontSize = 12.sp)
+            Column(Modifier.fillMaxWidth().heightIn(max = 620.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("GÖRÜNÜM", color = colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
+                ThemeSelector(themeMode, onThemeModeChange)
+                Text("MODEL SAĞLAYICISI", Modifier.padding(top = 8.dp), color = colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
+                Text("OpenAI uyumlu bir API veya Anthropic kullan. API anahtarı bu cihazda Android Keystore ile şifrelenerek saklanır.", color = colors.muted, fontSize = 12.sp)
                 Box {
                     OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text("${kind.label}  ▾") }
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -394,15 +547,15 @@ private fun ProviderSettingsDialog(
                 OutlinedTextField(apiKey, { apiKey = it }, label = { Text("API anahtarı") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(model, { model = it }, label = { Text("Model kimliği") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (models.isNotEmpty()) {
-                    Text("Bulunan modeller", color = Muted, fontSize = 12.sp)
+                    Text("Bulunan modeller", color = colors.muted, fontSize = 12.sp)
                     Column(Modifier.heightIn(max = 150.dp).verticalScroll(rememberScrollState())) {
                         models.take(80).forEach { id ->
                             TextButton(onClick = { model = id }, modifier = Modifier.fillMaxWidth()) { Text(id, modifier = Modifier.fillMaxWidth(), maxLines = 1) }
                         }
                     }
                 }
-                Text("İsteklerin ve eklediğin içerikler seçtiğin sağlayıcıya gönderilir. OpenCode Zen ayrı hesap ve API anahtarı ister; ücretsiz modellerin veri şartları modele göre değişebilir.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
-                status?.let { Text(it, color = if (it.startsWith("Hata")) Color(0xFFB42318) else Blue, fontSize = 12.sp) }
+                Text("İsteklerin ve eklediğin içerikler seçtiğin sağlayıcıya gönderilir. OpenCode Zen ayrı hesap ve API anahtarı ister; ücretsiz modellerin veri şartları modele göre değişebilir.", color = colors.muted, fontSize = 11.sp, lineHeight = 16.sp)
+                status?.let { Text(it, color = if (it.startsWith("Hata")) colors.error else colors.accentText, fontSize = 12.sp) }
                 OutlinedButton(onClick = { baseUrl = "https://opencode.ai/zen" }, modifier = Modifier.fillMaxWidth()) { Text("OpenCode Zen adresini kullan") }
                 OutlinedButton(onClick = { kind = ProviderKind.OPENAI; baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai" }, modifier = Modifier.fillMaxWidth()) { Text("Gemini API adresini kullan") }
                 TextButton(onClick = { apiKey = ""; onClearKey(); status = "Bu cihazdaki saklı anahtar silindi." }, modifier = Modifier.fillMaxWidth()) { Text("Saklı anahtarı sil") }
@@ -426,44 +579,68 @@ private fun ProviderSettingsDialog(
     )
 }
 
+/** Sistem / Açık / Koyu üçlü tema seçimi; değişim anında uygulanır ve kalıcı olur. */
 @Composable
-private fun TopBar(title: String, showMenu: Boolean, model: String?, onMenu: () -> Unit, onSettings: () -> Unit) {
-    Row(Modifier.fillMaxWidth().height(64.dp).border(width = 0.5.dp, color = Line).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (showMenu) IconButton(onClick = onMenu) { Icon(Icons.Default.Menu, contentDescription = "Sohbet geçmişi", tint = Ink) }
-        Text(title, Modifier.weight(1f), color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
-        Text(model?.let { "Model: $it" } ?: "Model bağlanmadı", Modifier.clip(RoundedCornerShape(16.dp)).background(SurfaceSoft).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 8.dp), color = Muted, fontSize = 12.sp, maxLines = 1)
-        IconButton(onClick = onSettings) { Icon(Icons.Default.MoreHoriz, contentDescription = "Diğer seçenekler", tint = Muted) }
+private fun ThemeSelector(themeMode: String, onThemeModeChange: (String) -> Unit) {
+    val colors = LocalBendeColors.current
+    val options = listOf(THEME_SYSTEM to "Sistem", THEME_LIGHT to "Açık", THEME_DARK to "Koyu")
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.surfaceSoft).padding(4.dp)) {
+        options.forEach { (value, label) ->
+            val selected = themeMode == value
+            Box(
+                Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(9.dp))
+                    .background(if (selected) colors.accent else Color.Transparent)
+                    .clickable { onThemeModeChange(value) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(label, color = if (selected) colors.onAccent else colors.muted, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+            }
+        }
     }
 }
 
 @Composable
-private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, activeSessionIds: Set<Long>, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onRename: (ChatSession) -> Unit, onDelete: (ChatSession) -> Unit, onInstructions: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxHeight().background(Color(0xFFFAFAFB)).border(width = 0.5.dp, color = Line).padding(16.dp)) {
+private fun TopBar(title: String, showMenu: Boolean, model: String?, onMenu: () -> Unit, onSettings: () -> Unit) {
+    val colors = LocalBendeColors.current
+    Row(Modifier.fillMaxWidth().height(64.dp).border(width = 0.5.dp, color = colors.line).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (showMenu) IconButton(onClick = onMenu, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Menu, contentDescription = "Sohbet geçmişi", tint = colors.ink, modifier = Modifier.size(24.dp)) }
+        Text(title, Modifier.weight(1f), color = colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, maxLines = 1)
+        Text(model?.let { "Model: $it" } ?: "Model bağlanmadı", Modifier.clip(RoundedCornerShape(16.dp)).background(colors.surfaceSoft).clickable(onClick = onSettings).padding(horizontal = 12.dp, vertical = 8.dp), color = colors.muted, fontSize = 12.sp, maxLines = 1)
+        IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.MoreHoriz, contentDescription = "Diğer seçenekler", tint = colors.muted, modifier = Modifier.size(24.dp)) }
+    }
+}
+
+@Composable
+private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectName: String?, activeSessionIds: Set<Long>, onSelectProject: () -> Unit, onSelect: (ChatSession) -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onRename: (ChatSession) -> Unit, onDelete: (ChatSession) -> Unit, onInstructions: () -> Unit, onExport: () -> Unit, onImport: () -> Unit, onGitHub: () -> Unit, onBrowser: () -> Unit, modifier: Modifier = Modifier) {
+    val colors = LocalBendeColors.current
+    Column(modifier.fillMaxHeight().background(colors.panel).border(width = 0.5.dp, color = colors.line).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Blue), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp)) }
-            Text("Bende", Modifier.padding(start = 10.dp).weight(1f), color = Ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            IconButton(onClick = onNew) { Icon(Icons.Default.Add, contentDescription = "Yeni sohbet", tint = Blue) }
+            Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(colors.accent), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, contentDescription = null, tint = colors.onAccent, modifier = Modifier.size(20.dp)) }
+            Text("Bende", Modifier.padding(start = 10.dp).weight(1f), color = colors.ink, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            IconButton(onClick = onNew, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Add, contentDescription = "Yeni sohbet", tint = colors.accentText, modifier = Modifier.size(24.dp)) }
         }
         Spacer(Modifier.height(22.dp))
         Button(onClick = onNew, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(12.dp)) { Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Yeni sohbet") }
-        Text("ÇALIŞMA ALANI", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
+        Text("ÇALIŞMA ALANI", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
         NavRow(Icons.Default.FolderOpen, if (projectName == null) "Proje seç" else "${projectName.take(18)}", if (projectName == null) "seç" else "açık", onSelectProject)
-        NavRow(Icons.Default.Terminal, "Kod araçları", "5 araç")
+        NavRow(Icons.Default.Terminal, "Kod araçları", "${MergedTools.openAiDefinitions(true).length()} araç")
         NavRow(Icons.Default.Code, "Proje talimatı", "incele", onInstructions)
-        Text("GEÇMİŞ", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
+        NavRow(Icons.Default.CloudUpload, "GitHub ve derleme", "aç", onGitHub)
+        NavRow(Icons.Default.Public, "Tarayıcı devri", "aç", onBrowser)
+        Text("GEÇMİŞ", Modifier.padding(top = 24.dp, bottom = 8.dp, start = 8.dp), color = colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 1.sp)
         LazyColumn(Modifier.weight(1f)) {
             items(sessions, key = { it.id }) { session ->
                 var menuExpanded by remember(session.id) { mutableStateOf(false) }
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (session.id == selectedId) Color(0xFFEFF4FF) else Color.Transparent).padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if (session.id == selectedId) colors.selection else Color.Transparent).padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     Row(Modifier.weight(1f).clickable { onSelect(session) }.padding(vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.ChatBubbleOutline, null, Modifier.size(16.dp), tint = if (session.id == selectedId) Blue else Muted)
-                        Text(session.title, Modifier.padding(start = 9.dp), color = Ink, fontSize = 13.sp, maxLines = 1)
+                        Icon(Icons.Default.ChatBubbleOutline, null, Modifier.size(16.dp), tint = if (session.id == selectedId) colors.accentText else colors.muted)
+                        Text(session.title, Modifier.padding(start = 9.dp), color = colors.ink, fontSize = 13.sp, maxLines = 1)
                     }
                     if (session.id in activeSessionIds) {
-                        CircularProgressIndicator(Modifier.padding(horizontal = 10.dp).size(16.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(Modifier.padding(horizontal = 10.dp).size(16.dp), strokeWidth = 2.dp, color = colors.accent)
                     } else {
                         Box {
-                            IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.MoreHoriz, contentDescription = "${session.title} seçenekleri", tint = Muted, modifier = Modifier.size(18.dp)) }
+                            IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.MoreHoriz, contentDescription = "${session.title} seçenekleri", tint = colors.muted, modifier = Modifier.size(18.dp)) }
                             DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
                                 DropdownMenuItem(text = { Text("Yeniden adlandır") }, onClick = { menuExpanded = false; onRename(session) })
                                 DropdownMenuItem(text = { Text("Sohbeti sil") }, onClick = { menuExpanded = false; onDelete(session) })
@@ -473,24 +650,26 @@ private fun HistoryPanel(sessions: List<ChatSession>, selectedId: Long, projectN
                 }
             }
         }
-        HorizontalDivider(color = Line)
-        Row(Modifier.fillMaxWidth().clickable(onClick = onExport).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Upload, null, tint = Muted, modifier = Modifier.size(18.dp)); Text("Verileri dışa aktar", Modifier.padding(start = 10.dp), color = Muted, fontSize = 13.sp) }
-        Row(Modifier.fillMaxWidth().clickable(onClick = onImport).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Download, null, tint = Muted, modifier = Modifier.size(18.dp)); Text("Verileri içe aktar", Modifier.padding(start = 10.dp), color = Muted, fontSize = 13.sp) }
-        Row(Modifier.fillMaxWidth().clickable(onClick = onSettings).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Settings, null, tint = Muted, modifier = Modifier.size(18.dp)); Text("Ayarlar", Modifier.padding(start = 10.dp), color = Muted, fontSize = 13.sp) }
+        HorizontalDivider(color = colors.line)
+        Row(Modifier.fillMaxWidth().clickable(onClick = onExport).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Upload, null, tint = colors.muted, modifier = Modifier.size(18.dp)); Text("Verileri dışa aktar", Modifier.padding(start = 10.dp), color = colors.muted, fontSize = 13.sp) }
+        Row(Modifier.fillMaxWidth().clickable(onClick = onImport).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Download, null, tint = colors.muted, modifier = Modifier.size(18.dp)); Text("Verileri içe aktar", Modifier.padding(start = 10.dp), color = colors.muted, fontSize = 13.sp) }
+        Row(Modifier.fillMaxWidth().clickable(onClick = onSettings).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.Settings, null, tint = colors.muted, modifier = Modifier.size(18.dp)); Text("Ayarlar", Modifier.padding(start = 10.dp), color = colors.muted, fontSize = 13.sp) }
     }
 }
 
 @Composable
 private fun NavRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, badge: String, onClick: () -> Unit = {}) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = Muted, modifier = Modifier.size(17.dp)); Text(title, Modifier.weight(1f).padding(start = 10.dp), color = Ink, fontSize = 13.sp, maxLines = 1); Text(badge, color = Muted, fontSize = 10.sp) }
+    val colors = LocalBendeColors.current
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = colors.muted, modifier = Modifier.size(17.dp)); Text(title, Modifier.weight(1f).padding(start = 10.dp), color = colors.ink, fontSize = 13.sp, maxLines = 1); Text(badge, color = colors.muted, fontSize = 10.sp) }
 }
 
 @Composable
 private fun Welcome(onPrompt: (String) -> Unit) {
+    val colors = LocalBendeColors.current
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Box(Modifier.size(62.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xFFEFF4FF)), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, null, tint = Blue, modifier = Modifier.size(30.dp)) }
-        Text("Bugün ne yapalım?", Modifier.padding(top = 20.dp), fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = Ink)
-        Text("Fikrini yaz, birlikte başlayalım.", Modifier.padding(top = 8.dp, bottom = 26.dp), color = Muted, fontSize = 14.sp)
+        Box(Modifier.size(62.dp).clip(RoundedCornerShape(20.dp)).background(colors.selection), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, null, tint = colors.accentText, modifier = Modifier.size(30.dp)) }
+        Text("Bugün ne yapalım?", Modifier.padding(top = 20.dp), fontSize = 26.sp, fontWeight = FontWeight.SemiBold, color = colors.ink)
+        Text("Fikrini yaz, birlikte başlayalım.", Modifier.padding(top = 8.dp, bottom = 26.dp), color = colors.muted, fontSize = 14.sp)
         Column(Modifier.widthIn(max = 480.dp)) {
             Suggestion(Icons.Default.Code, "Bir fikri uygulamaya dönüştür", "Basit bir yapılacaklar listesi tasarla", onPrompt)
             Suggestion(Icons.Default.Terminal, "Kod hakkında yardım al", "Bu kodu benim için açıkla", onPrompt)
@@ -501,48 +680,50 @@ private fun Welcome(onPrompt: (String) -> Unit) {
 
 @Composable
 private fun Suggestion(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, prompt: String, onPrompt: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(SurfaceSoft).clickable { onPrompt(prompt) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = Blue, modifier = Modifier.size(19.dp))
-        Column(Modifier.padding(start = 12.dp)) { Text(title, fontWeight = FontWeight.Medium, color = Ink, fontSize = 13.sp); Text(prompt, Modifier.padding(top = 3.dp), color = Muted, fontSize = 12.sp) }
+    val colors = LocalBendeColors.current
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(14.dp)).background(colors.surfaceSoft).clickable { onPrompt(prompt) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = colors.accentText, modifier = Modifier.size(19.dp))
+        Column(Modifier.padding(start = 12.dp)) { Text(title, fontWeight = FontWeight.Medium, color = colors.ink, fontSize = 13.sp); Text(prompt, Modifier.padding(top = 3.dp), color = colors.muted, fontSize = 12.sp) }
     }
 }
 
 @Composable
 private fun MessagesList(messages: List<Message>, sending: Boolean = false, streamingText: String? = null, modifier: Modifier = Modifier) {
+    val colors = LocalBendeColors.current
     LazyColumn(modifier, contentPadding = PaddingValues(top = 24.dp, bottom = 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         items(messages, key = { it.id }) { message ->
             if (message.user) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                Column(Modifier.widthIn(max = 520.dp).clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 5.dp)).background(Color(0xFFF1F3F6)).padding(horizontal = 16.dp, vertical = 12.dp)) {
-                    message.attachment?.let { Text("📎  ${it.name}", color = Blue, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
-                    MarkdownText(message.text, Ink)
+                Column(Modifier.widthIn(max = 520.dp).clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 5.dp)).background(colors.userBubble).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                    message.attachment?.let { Text("📎  ${it.name}", color = colors.accentText, fontSize = 12.sp, modifier = Modifier.padding(bottom = 6.dp)) }
+                    MarkdownText(message.text, colors.ink)
                 }
             } else if (message.toolResultFor != null) Row(Modifier.fillMaxWidth()) {
-                Column(Modifier.widthIn(max = 640.dp).clip(RoundedCornerShape(12.dp)).background(SurfaceSoft).padding(12.dp)) {
-                    Text("${message.toolName ?: "Araç"} sonucu", color = Muted, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                    Text(message.text.take(3000), Modifier.padding(top = 4.dp), color = Ink, fontSize = 12.sp, lineHeight = 18.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                Column(Modifier.widthIn(max = 640.dp).clip(RoundedCornerShape(12.dp)).background(colors.surfaceSoft).padding(12.dp)) {
+                    Text("${message.toolName ?: "Araç"} sonucu", color = colors.muted, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                    Text(message.text.take(3000), Modifier.padding(top = 4.dp), color = colors.ink, fontSize = 12.sp, lineHeight = 18.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                 }
             } else if (message.toolCalls.isNotEmpty() && message.text.isBlank()) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.SmartToy, null, tint = Blue, modifier = Modifier.size(18.dp))
-                Text(message.toolCalls.joinToString { AgentTools.display(it) }, Modifier.padding(start = 8.dp), color = Muted, fontSize = 12.sp)
+                Icon(Icons.Default.SmartToy, null, tint = colors.accentText, modifier = Modifier.size(18.dp))
+                Text(message.toolCalls.joinToString { MergedTools.display(it) }, Modifier.padding(start = 8.dp), color = colors.muted, fontSize = 12.sp)
             } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Box(Modifier.size(28.dp).clip(CircleShape).background(Color(0xFFEFF4FF)), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, null, tint = Blue, modifier = Modifier.size(16.dp)) }
-                Column(Modifier.padding(start = 11.dp).widthIn(max = 600.dp)) { Text("Bende", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp); MarkdownText(message.text, Ink, Modifier.padding(top = 6.dp)); if (message.toolCalls.isNotEmpty()) Text("Araçlar: ${message.toolCalls.joinToString { it.name }}", Modifier.padding(top = 6.dp), color = Muted, fontSize = 11.sp) }
+                Box(Modifier.size(28.dp).clip(CircleShape).background(colors.selection), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, null, tint = colors.accentText, modifier = Modifier.size(16.dp)) }
+                Column(Modifier.padding(start = 11.dp).widthIn(max = 600.dp)) { Text("Bende", color = colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp); MarkdownText(message.text, colors.ink, Modifier.padding(top = 6.dp)); if (message.toolCalls.isNotEmpty()) Text("Araçlar: ${message.toolCalls.joinToString { it.name }}", Modifier.padding(top = 6.dp), color = colors.muted, fontSize = 11.sp) }
             }
         }
         if (sending) item(key = "assistant-thinking") {
             if (streamingText.isNullOrBlank()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Blue)
-                    Text("Yanıt hazırlanıyor…", Modifier.padding(start = 10.dp), color = Muted, fontSize = 13.sp)
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.accent)
+                    Text("Yanıt hazırlanıyor…", Modifier.padding(start = 10.dp), color = colors.muted, fontSize = 13.sp)
                 }
             } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Box(Modifier.size(28.dp).clip(CircleShape).background(Color(0xFFEFF4FF)), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, null, tint = Blue, modifier = Modifier.size(16.dp)) }
+                Box(Modifier.size(28.dp).clip(CircleShape).background(colors.selection), contentAlignment = Alignment.Center) { Icon(Icons.Default.SmartToy, null, tint = colors.accentText, modifier = Modifier.size(16.dp)) }
                 Column(Modifier.padding(start = 11.dp).widthIn(max = 600.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Bende", color = Ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        CircularProgressIndicator(Modifier.padding(start = 8.dp).size(11.dp), strokeWidth = 1.5.dp, color = Blue)
+                        Text("Bende", color = colors.ink, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        CircularProgressIndicator(Modifier.padding(start = 8.dp).size(11.dp), strokeWidth = 1.5.dp, color = colors.accent)
                     }
-                    MarkdownText(streamingText, Ink, Modifier.padding(top = 6.dp))
+                    MarkdownText(streamingText, colors.ink, Modifier.padding(top = 6.dp))
                 }
             }
         }
@@ -551,6 +732,7 @@ private fun MessagesList(messages: List<Message>, sending: Boolean = false, stre
 
 @Composable
 private fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifier) {
+    val colors = LocalBendeColors.current
     val annotated = buildAnnotatedString {
         var inCodeBlock = false
         text.lines().forEachIndexed { i, line ->
@@ -558,16 +740,16 @@ private fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifi
             if (line.trimStart().startsWith("```")) {
                 inCodeBlock = !inCodeBlock
             } else if (inCodeBlock) {
-                withStyle(SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, background = SurfaceSoft, color = color)) { append("  $line  ") }
+                withStyle(SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, background = colors.codeBackground, color = color)) { append("  $line  ") }
             } else {
                 val heading = Regex("^#{1,6}\\s+").containsMatchIn(line)
                 val clean = if (heading) line.replaceFirst(Regex("^#{1,6}\\s+"), "") else line
                 when {
-                    heading -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 18.sp, color = color)) { appendInlineMarkdown(clean, color) }
-                    clean.startsWith("- ") || clean.startsWith("* ") -> { append("• "); appendInlineMarkdown(clean.drop(2), color) }
-                    clean.matches(Regex("^\\d+\\.\\s+.*")) -> { append(clean.substringBefore('.') + ". "); appendInlineMarkdown(clean.substringAfter(". "), color) }
-                    clean.startsWith("> ") -> withStyle(SpanStyle(color = Muted, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { appendInlineMarkdown(clean.drop(2), color) }
-                    else -> appendInlineMarkdown(clean, color)
+                    heading -> withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontSize = 18.sp, color = color)) { appendInlineMarkdown(clean, color, colors.codeBackground) }
+                    clean.startsWith("- ") || clean.startsWith("* ") -> { append("• "); appendInlineMarkdown(clean.drop(2), color, colors.codeBackground) }
+                    clean.matches(Regex("^\\d+\\.\\s+.*")) -> { append(clean.substringBefore('.') + ". "); appendInlineMarkdown(clean.substringAfter(". "), color, colors.codeBackground) }
+                    clean.startsWith("> ") -> withStyle(SpanStyle(color = colors.muted, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { appendInlineMarkdown(clean.drop(2), color, colors.codeBackground) }
+                    else -> appendInlineMarkdown(clean, color, colors.codeBackground)
                 }
             }
         }
@@ -575,7 +757,7 @@ private fun MarkdownText(text: String, color: Color, modifier: Modifier = Modifi
     Text(annotated, modifier, color = color, fontSize = 14.sp, lineHeight = 22.sp)
 }
 
-private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdown(text: String, color: Color) {
+private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdown(text: String, color: Color, codeBackground: Color) {
     val token = Regex("(\\*\\*.+?\\*\\*|__.+?__|`[^`]+`|\\*[^*]+\\*|_[^_]+_)")
     var cursor = 0
     token.findAll(text).forEach { match ->
@@ -583,7 +765,7 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdow
         val raw = match.value
         when {
             raw.startsWith("**") || raw.startsWith("__") -> withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(raw.substring(2, raw.length - 2)) }
-            raw.startsWith("`") -> withStyle(SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, background = SurfaceSoft, color = color)) { append(raw.substring(1, raw.length - 1)) }
+            raw.startsWith("`") -> withStyle(SpanStyle(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, background = codeBackground, color = color)) { append(raw.substring(1, raw.length - 1)) }
             else -> withStyle(SpanStyle(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) { append(raw.substring(1, raw.length - 1)) }
         }
         cursor = match.range.last + 1
@@ -593,19 +775,21 @@ private fun androidx.compose.ui.text.AnnotatedString.Builder.appendInlineMarkdow
 
 @Composable
 private fun Composer(input: String, onInput: (String) -> Unit, attachment: Attachment?, clearAttachment: () -> Unit, onAttach: () -> Unit, onSend: () -> Unit, sending: Boolean, modifier: Modifier = Modifier) {
-    Column(modifier.clip(RoundedCornerShape(20.dp)).border(1.dp, Line, RoundedCornerShape(20.dp)).background(Color.White).padding(10.dp)) {
+    val colors = LocalBendeColors.current
+    val canSend = !sending && (input.isNotBlank() || attachment != null)
+    Column(modifier.clip(RoundedCornerShape(20.dp)).border(1.dp, colors.line, RoundedCornerShape(20.dp)).background(colors.surface).padding(10.dp)) {
         AnimatedVisibility(attachment != null) {
-            Row(Modifier.padding(start = 6.dp, bottom = 8.dp).clip(RoundedCornerShape(8.dp)).background(SurfaceSoft).padding(start = 9.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AttachFile, null, tint = Blue, modifier = Modifier.size(15.dp)); Text(attachment?.name.orEmpty(), Modifier.padding(horizontal = 5.dp), color = Muted, fontSize = 12.sp); IconButton(onClick = clearAttachment, modifier = Modifier.size(28.dp)) { Icon(Icons.Default.Close, "Eki kaldır", modifier = Modifier.size(16.dp), tint = Muted) }
+            Row(Modifier.padding(start = 6.dp, bottom = 8.dp).clip(RoundedCornerShape(8.dp)).background(colors.surfaceSoft).padding(start = 9.dp, end = 4.dp, top = 2.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AttachFile, null, tint = colors.accentText, modifier = Modifier.size(15.dp)); Text(attachment?.name.orEmpty(), Modifier.padding(horizontal = 5.dp), color = colors.muted, fontSize = 12.sp); IconButton(onClick = clearAttachment, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Close, "Eki kaldır", modifier = Modifier.size(16.dp), tint = colors.muted) }
             }
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            IconButton(onClick = onAttach, modifier = Modifier.size(40.dp)) { Icon(Icons.Default.Add, "Dosya ekle", tint = Muted) }
+            IconButton(onClick = onAttach, modifier = Modifier.size(48.dp)) { Icon(Icons.Default.Add, "Dosya ekle", tint = colors.muted, modifier = Modifier.size(24.dp)) }
             Box(Modifier.weight(1f).padding(horizontal = 7.dp, vertical = 11.dp)) {
-                if (input.isEmpty()) Text("Bende'ye mesaj yaz", color = Color(0xFF98A2B3), fontSize = 14.sp)
-                BasicTextField(value = input, onValueChange = onInput, modifier = Modifier.fillMaxWidth(), textStyle = androidx.compose.ui.text.TextStyle(color = Ink, fontSize = 14.sp, lineHeight = 20.sp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { onSend() }), maxLines = 5)
+                if (input.isEmpty()) Text("Bende'ye mesaj yaz", color = colors.placeholder, fontSize = 14.sp)
+                BasicTextField(value = input, onValueChange = onInput, modifier = Modifier.fillMaxWidth(), textStyle = androidx.compose.ui.text.TextStyle(color = colors.ink, fontSize = 14.sp, lineHeight = 20.sp), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { onSend() }), maxLines = 5)
             }
-            IconButton(onClick = onSend, enabled = !sending && (input.isNotBlank() || attachment != null), modifier = Modifier.size(40.dp).clip(CircleShape).background(if (!sending && (input.isNotBlank() || attachment != null)) Blue else Color(0xFFE5E7EB))) { Icon(Icons.AutoMirrored.Filled.Send, "Gönder", tint = Color.White, modifier = Modifier.size(18.dp)) }
+            IconButton(onClick = onSend, enabled = canSend, modifier = Modifier.size(48.dp).clip(CircleShape).background(if (canSend) colors.accent else colors.disabledFill)) { Icon(Icons.AutoMirrored.Filled.Send, "Gönder", tint = if (canSend) colors.onAccent else colors.placeholder, modifier = Modifier.size(20.dp)) }
         }
     }
 }

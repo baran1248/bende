@@ -235,7 +235,6 @@ object GitHubAuth {
 
 object GitHubApi {
     private const val API = "https://api.github.com"
-    private const val WORKFLOW = ".github/workflows/bende-android.yml"
 
     /** GET /user -> giriş yapılmış kullanıcının adı (login). */
     suspend fun user(context: Context): String = withContext(Dispatchers.IO) {
@@ -617,7 +616,7 @@ private fun filePath(value: String): String {
     val path = value.trim().replace('\\', '/')
     val parts = path.split('/')
     require(path.isNotBlank() && !path.startsWith('/') && parts.size <= 32) { "Geçersiz dosya yolu: \"$value\"" }
-    require(parts.all { it.isNotBlank() && it != "." && it != ".." && it.matches(Regex("[A-Za-z0-9._ -]+")) }) { "Geçersiz dosya yolu: \"$value\"" }
+    require(parts.all { it.isNotBlank() && it != "." && it != ".." && it.none { c -> c.isISOControl() || c == ':' } }) { "Geçersiz dosya yolu: \"$value\"" }
     return parts.joinToString("/")
 }
 
