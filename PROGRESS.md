@@ -1,4 +1,16 @@
-# Bende — ilerleme kaydı
+# Bende - ilerleme kaydı
+
+## Bu kopya (Bende 2) için çalışma planı — 13.10.2026
+
+- Bu çalışma `Ajantik Dosyaları/Bende 2` kopyası üzerinden yürütülür; orijinal `Bende` klasörüne dokunulmaz. Uygulama adı **Bende**, paket adı `com.bende.app` olarak kalır.
+- Amaç: orijinal görev promptundaki 1-9 aşamalarını mümkün olduğunca tamamlamak. Kurallar aynı: yalnızca derlenen/test edilen iş "çalışıyor" sayılır, doğrulanmayanlar DOĞRULANMADI listesine girer.
+- **Sorumluluk sınırı (varsayım):** GitHub hesabı yan hesap `baran1248` olarak verildi. GitHub Device Flow OAuth uygulaması açmak, depo oluşturmak, Release yayınlamak gibi hesaba dokunan işlerde yalnızca bu yan hesap kullanılır; canlı test için kullanıcıdan erişim token'ı (PAT) istenir. Ücretli/kota aşan işlem yapılmaz.
+- Aşama önceliği:
+  1. Çekirdek iyileştirme (Aşama 1/3/9): yanıt akışı (streaming), bağlam sıkıştırma, oturum dışa/içe aktarma, koyu tema + tema seçici, erişilebilirlik/boş-durum cilası, `list_files` aracı.
+  2. Aşama 6: uygulama içi WebView tarayıcı devri (DOM okuma, tıklama, form doldurma; riskli eylemlerde onay; sayfa içeriği veri sayılır).
+  3. Aşama 5: GitHub katmanı (Device Flow/PAT ile giriş, depo oluşturma, kod iletme, Actions ile APK derleme, log okuma, Release/Artifact indirme) + "derle" aracı soyutlaması (yerel/bulut/otomatik ayarı).
+  4. Aşama 7-8 (cihaz içi derleme, llama.cpp yerel model): gömülü JDK/NDK ve llama.cpp yerel derlemesi bu ortamda (Windows masaüstü, APK boyutu ve NDK derleme süresi sınırları) üretilemez; arayüz/soyutlama ve gerekçeyle raporlanır, uydurma test yapılmaz.
+- Teslimat: sürüm numaralı debug APK `Sonuç/` içine, README ve PROGRESS güncellenir, her aşama sonunda git commit.
 
 ## Kayıt düzeni incelemesi
 
